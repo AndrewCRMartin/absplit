@@ -57,6 +57,7 @@
 #include "bioplib/macros.h"
 #include "bioplib/pdb.h"
 #include "bioplib/seq.h"
+#include "bioplib/sequtil.h"
 
 #include "absplit.h"
 
@@ -66,11 +67,13 @@
 #define PROGNAME "absplit"
 #define VERSION  0.1
 #define MAXBUFF  240
+#define HUGEBUFF 10000
 #define MAXSEQ   10000
 
 /************************************************************************/
 /* Globals
 */
+BOOL gVerbose = TRUE;
 
 /************************************************************************/
 /* Prototypes
@@ -81,8 +84,13 @@ BOOL ProcessFile(WHOLEPDB *wpdb, char *infile, FILE *dataFp);
 void FindVHVLDomains(PDBCHAIN *chain, FILE *dataFp);
 void GetSequenceForChain(PDBCHAIN *chain, char *sequence);
 void ExePathName(char *str, BOOL pathonly);
-void CheckAndMask(char *sequence, FILE *dataFp);
+BOOL CheckAndMask(char *sequence, FILE *dataFp);
 FILE *OpenSequenceDataFile(void);
+REAL CompareSeqs(char *theSeq, char *seq, char *align1, char *align2);
+int CalcShortSeqLen(char *align1, char *align2);
+void Mask(char *seq, char *aln1, char *aln2);
+
+
 
 
 
@@ -235,9 +243,6 @@ BOOL ProcessFile(WHOLEPDB *wpdb, char *infile, FILE *dataFp)
    if((pdbs = blAllocPDBStructure(wpdb->pdb))!=NULL)
    {
       PDBCHAIN *chain;
-#ifdef DEBUG
-      int count = 1;
-#endif
       
       for(chain=pdbs->chains; chain!=NULL; NEXT(chain))
       {
@@ -248,9 +253,7 @@ BOOL ProcessFile(WHOLEPDB *wpdb, char *infile, FILE *dataFp)
          
          if(!strncmp(chain->start->record_type, "ATOM", 4))
          {
-#ifdef DEBUG
-            printf("Chain: %s %d\n", chain->chain, count++);
-#endif
+            printf("***Handling chain: %s\n", chain->chain);
             FindVHVLDomains(chain, dataFp);
          }
          
@@ -262,8 +265,6 @@ BOOL ProcessFile(WHOLEPDB *wpdb, char *infile, FILE *dataFp)
       return(FALSE);
    }
    
-   
-
    return(TRUE);
 }
 
@@ -315,6 +316,78 @@ FILE *OpenSequenceDataFile(void)
    return(fopen(pathname, "r"));
 }
 
+
+/************************************************************************/
+/*>REAL CompareSeqs(char *theSeq, char *seq, char *align1, char *align2)
+   ---------------------------------------------------------------------
+*//**
+   \param[in]   theSeq   the sequence of interest
+   \param[in]   seq      the database sequence
+   \param[out]  align1   Alignment of our sequence
+   \param[out]  align2   Alignment of database sequence
+   \return               Score for alignment
+
+   - 31.03.20 Original   By: ACRM
+*/
+REAL CompareSeqs(char *theSeq, char *seq, char *align1, char *align2)
+{
+   int  score;
+   int  alignLen;
+   int  shortSeqLen = MIN(strlen(theSeq), strlen(seq));
+   
+   score = blAlign(theSeq, strlen(theSeq),
+                   seq, strlen(seq),
+                   FALSE, /* verbose  */
+                   TRUE,  /* identity */
+                   5,     /* penalty  */
+                   align1,
+                   align2,
+                   &alignLen);
+   align1[alignLen] = align2[alignLen] = '\0';
+
+   shortSeqLen = CalcShortSeqLen(align1, align2);
+
+#ifdef DEBUG   
+   fprintf(stderr, "\n>>>%s\n", align1);
+   fprintf(stderr, ">>>%s %d\n", align2, shortSeqLen);
+#endif
+   
+   return((REAL)score / (REAL)shortSeqLen);
+}
+
+
+/************************************************************************/
+int CalcShortSeqLen(char *align1, char *align2)
+{
+   int start, stop, i, len1=0, len2=0,
+      alnLen = strlen(align1);
+   
+
+   /* Find where the alignment starts                                   */
+   for(start=0; start<alnLen; start++)
+   {
+      if((align1[start] != '-') && (align2[start] != '-'))
+         break;
+   }
+   /* Find where the alignment stops                                    */
+   for(stop=alnLen-1; stop>start; stop--)
+   {
+      if((align1[stop] != '-') && (align2[stop] != '-'))
+         break;
+   }
+   /* Step between start and stop and calculate the number of residues 
+      in each sequence
+   */
+   for(i=start; i<=stop; i++)
+   {
+      if(align1[i] != '-')
+         len1++;
+      if(align2[i] != '-')
+         len2++;
+   }
+
+   return(MIN(len1, len2));
+}
             
             
             
@@ -325,14 +398,70 @@ void FindVHVLDomains(PDBCHAIN *chain, FILE *dataFp)
 #ifdef DEBUG
    printf("Chain: %s Sequence: %s\n", chain->chain, sequence);
 #endif
-   CheckAndMask(sequence, dataFp);
-   
-   
+   while(TRUE)
+   {
+      if(!CheckAndMask(sequence, dataFp)) break;
+   }
 }
 
-void CheckAndMask(char *sequence, FILE *dataFp)
+BOOL CheckAndMask(char *sequence, FILE *dbFp)
 {
+   char        bestMatch[MAXBUFF+1];
+   REAL        maxScore = 0.0;
+   static char align1[HUGEBUFF+1],
+               align2[HUGEBUFF+1];
+   static char bestAlign1[HUGEBUFF+1],
+               bestAlign2[HUGEBUFF+1];
+   char header[MAXBUFF+1];
+   char *seq = NULL;
+   BOOL found = FALSE;
+   rewind(dbFp);
+
+   /* Find the best match in the reference sequences */
+   while((seq = blReadFASTA(dbFp, header, MAXBUFF))!=NULL)
+   {
+      REAL score;
+         
+      score = CompareSeqs(sequence, seq, align1, align2);
+            
+      if(score > maxScore)
+      {
+         maxScore = score;
+         strncpy(bestMatch,  header, MAXBUFF);
+         strncpy(bestAlign1, align1, HUGEBUFF);
+         strncpy(bestAlign2, align2, HUGEBUFF);
+      }
+   }
+
+   /* If we found an antibody sequence               */
+   if(maxScore > 0.5)
+   {
+      fprintf(stderr, "Best match: %s *** %.4f\n",
+              bestMatch, maxScore);
+      fprintf(stderr, "%s\n", bestAlign1);
+      fprintf(stderr, "%s\n", bestAlign2);
+      Mask(sequence, bestAlign1, bestAlign2);
+      found = TRUE;
+   }
+   
+   return(found);
 }
 
+void Mask(char *seq, char *aln1, char *aln2)
+{
+   int i, j;
+   for(i=0, j=0; i<strlen(seq); i++)
+   {
+      while(aln1[j] == '-')  /* Skip insertions */
+      {
+         j++;
+      }
+      if(aln2[j] != '-')
+      {
+         seq[i] = 'X';
+      }
+      j++;
+   }
+}
 
 
