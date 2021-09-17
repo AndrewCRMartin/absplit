@@ -15,9 +15,11 @@ within a cutoff, then this is a potential VH/VL pair.
 5. For each potential VH/VL pair (note that these can be VL/VL or
 VH/VL and may be within the same chain) check the standard interface
 residues (assigned from the alignment) and ensure that they are close
-together  
-6. We now have assigned VH/VL pairs, so check those against *other*
+together
+6. Add back HETATMs (other than water)
+7. We now have assigned VH/VL pairs, so check those against *other*
 chains to look for antibody/antigen interactions. Note that an
 'antigen' may be a different antibody.
-7. Output the VH/VL domains together with any contacted antigen
+8. Now check the HETATMs for HET antigens
+9. Output the VH/VL domains together with any contacted antigen
 
