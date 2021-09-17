@@ -12,7 +12,10 @@ my $configFile = "$parentDir/absplit.conf";
 my %config  = config::ReadConfig($configFile);
 
 my $abdir   = $config{'abpdbdir'};
-my $datadir = $config{'abpdbdir'};
+my $bindir  = $config{'bindir'};
+my $datasub = $config{'datasub'};
+my $datadir = "$bindir/$datasub";              # Data for absplit
+
 my $allseq  = "$datadir/allabs.faa";
 my $repseq  = "$datadir/cdhit.faa";
 

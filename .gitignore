@@ -1,3 +1,4 @@
 *.o
 absplit.conf
 cdhit/
+data/
