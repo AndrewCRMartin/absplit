@@ -2,3 +2,6 @@
 absplit.conf
 cdhit/
 data/
+bin/
+src/Makefile
+src/absplit

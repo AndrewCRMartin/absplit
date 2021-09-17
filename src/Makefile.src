@@ -1,0 +1,25 @@
+CC      = gcc
+BINDIR  = {bindir}
+DATADIR = {datadir}
+CFLAGS  = -O3 -ansi -Wall -pedantic -I$(HOME)/include -L$(HOME)/lib
+LFLAGS  = -lbiop -lgen -lm -lxml2
+TARGETS = absplit
+
+all : $(TARGETS)
+	@echo " "
+	@echo " --- BUILD COMPLETE --- "
+	@echo " "
+
+install :
+	mkdir -p $(BINDIR)
+	cp $(TARGETS) $(BINDIR)
+
+distclean : clean
+	\rm Makefile
+
+clean :
+	\rm -f *.o $(TARGETS)
+
+absplit : absplit.c
+	$(CC) $(CFLAGS) -o $@ $< $(LFLAGS)
+
