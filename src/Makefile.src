@@ -20,6 +20,6 @@ distclean : clean
 clean :
 	\rm -f *.o $(TARGETS)
 
-absplit : absplit.c absplit.h Makefile
+absplit : absplit.c absplit.h
 	$(CC) $(CFLAGS) -o $@ $< $(LFLAGS)
 
