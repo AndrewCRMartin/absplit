@@ -1,4 +1,4 @@
-#!/usr/bin/perl
+#!/usr/bin/perl -s
 use strict;
 use Cwd qw(abs_path);
 use FindBin;
@@ -6,55 +6,55 @@ use lib abs_path("$FindBin::Bin/../..");
 use config;
 
 
-my $parentDir = abs_path("$FindBin::Bin/../..");
+my $parentDir  = abs_path("$FindBin::Bin/../..");
 my $configFile = "$parentDir/absplit.conf";
+my $dataDir    = "$parentDir/data";
 
 my %config  = config::ReadConfig($configFile);
-
 my $abdir   = $config{'abpdbdir'};
 my $bindir  = $config{'bindir'};
 my $datasub = $config{'datasub'};
-my $datadir = "$bindir/$datasub";              # Data for absplit
+my $allseq  = "$dataDir/allabs.faa";
+my $repseq  = "$dataDir/cdhit.faa";
 
-my $allseq  = "$datadir/allabs.faa";
-my $repseq  = "$datadir/cdhit.faa";
-
-`mkdir -p $datadir`;
+`mkdir -p $dataDir`;
 unlink $allseq;
 
-print "Getting list of antibody PDB files...";
-my @pdbfiles = GetFileList($abdir, '.pdb');
-print "done\n";
-
-print STDERR "Extracting sequence data and concatenating files...";
-foreach my $file (@pdbfiles)
+if((! -e "$dataDir/templates.faa") || defined($::f) || defined($::force))
 {
-    my $pdbcode = $file;
-    $pdbcode =~ s/.*\///;
-    $pdbcode =~ s/\..*?$//;
-    `pdbgetchain L,H ${abdir}/$file | pdb2pir -c -f -l ${pdbcode}_ >>$allseq`;
-    print STDERR '.';
-}
-print "done\n";
+    print "Getting list of antibody PDB files...";
+    my @pdbfiles = GetFileList($abdir, '.pdb');
+    print "done\n";
 
-# Grab and compile CD-HIT if not there
-if( ! -d "cdhit" )
-{
-    print STDERR "Building cd-hit\n";
-    `git clone git\@github.com:weizhongli/cdhit.git`;
-    `(cd cdhit; make)`;
+    print STDERR "Extracting sequence data and concatenating files...";
+    foreach my $file (@pdbfiles)
+    {
+        my $pdbcode = $file;
+        $pdbcode =~ s/.*\///;
+        $pdbcode =~ s/\..*?$//;
+        `pdbgetchain L,H ${abdir}/$file | pdb2pir -c -f -l ${pdbcode}_ >>$allseq`;
+        print STDERR '.';
+    }
+    print "done\n";
+
+    # Grab and compile CD-HIT if not there
+    if( ! -d "cdhit" )
+    {
+        print STDERR "Building cd-hit\n";
+        `git clone git\@github.com:weizhongli/cdhit.git`;
+        `(cd cdhit; make)`;
+        print STDERR "done\n";
+    }
+    
+    print STDERR "Running CD-HIT...";
+    `cdhit/cd-hit -c 0.6 -n 3 -i $allseq -o $repseq`;
     print STDERR "done\n";
+    
+    #SplitFastaFiles($repseq, $tplDir);
+    #print STDERR "Antibody template sequences are in $tplDir\n";
+    unlink $allseq;
+    unlink "${repseq}.clstr";
 }
-
-print STDERR "Running CD-HIT...";
-`cdhit/cd-hit -c 0.6 -n 3 -i $allseq -o $repseq`;
-print STDERR "done\n";
-
-#SplitFastaFiles($repseq, $tplDir);
-#print STDERR "Antibody template sequences are in $tplDir\n";
-unlink $allseq;
-#unlink $repseq;
-unlink "${repseq}.clstr";
 
 
 #*************************************************************************

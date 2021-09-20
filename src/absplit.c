@@ -64,14 +64,15 @@
 /************************************************************************/
 /* Defines and macros
 */
-#define PROGNAME "absplit"
-#define VERSION  0.1
-#define MAXBUFF  240
-#define HUGEBUFF 10000
-#define MAXSEQ   10000
-#define ABTHRESHOLD 0.5
+#define PROGNAME       "absplit"
+#define VERSION        0.1
+#define MAXBUFF        240
+#define HUGEBUFF       10000
+#define MAXSEQ         10000
+#define ABTHRESHOLD    0.5
 #define GAPOPENPENALTY 5
 #define GAPEXTPENALTY  2
+#define SCOREMATRIX    "BLOSUM62"
 
 /************************************************************************/
 /* Globals
@@ -91,11 +92,6 @@ BOOL CheckAndMask(char *sequence, FILE *dataFp);
 FILE *OpenSequenceDataFile(void);
 REAL CompareSeqs(char *theSeq, char *seq, char *align1, char *align2);
 void Mask(char *seq, char *aln1, char *aln2);
-
-
-
-
-
 
 
 /************************************************************************/
@@ -121,7 +117,7 @@ datafile was not installed\n", PROGNAME);
             }
             
 
-            blReadMDM("BLOSUM62");
+            blReadMDM(SCOREMATRIX);
             
             if(!ProcessFile(wpdb, infile, dataFp))
             {
