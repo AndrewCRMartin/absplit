@@ -47,6 +47,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <math.h>
 #ifdef __linux__
 #  include <linux/limits.h>
 #else
@@ -75,18 +76,27 @@
 #define SCOREMATRIX    "BLOSUM62"
 #define MAXINTERFACE   20
 #define MAXRESID       16
-
+#define COFGDISTCUTSQ  1225.0 /* 35^2 */
+#define INTDISTCUTSQ   900.0  /* 30^2 */
 typedef struct _domain
 {
-   int  startSeqRes,
-        stopSeqRes,
+   int  domainNumber,
+        startSeqRes,
+        lastSeqRes,
         nInterface,
         interface[MAXINTERFACE];
-   char startRes[MAXRESID],
-        stopRes[MAXRESID],
-        domSeq[MAXSEQ],
+   char domSeq[MAXSEQ],
         chainType;
+   PDB  *startRes,
+        *lastRes,
+        *stopRes;
+   VEC3F CofG,
+         IntCofG;
+   REAL  pairIntDistSq,
+      pairCofGDistSq;
+   
    PDBCHAIN *chain;
+   struct _domain *pairedDomain;
    struct _domain *next;
 }
 DOMAIN;
@@ -110,7 +120,10 @@ FILE *OpenSequenceDataFile(void);
 REAL CompareSeqs(char *theSeq, char *seq, char *align1, char *align2);
 void MaskAndAssignDomain(char *seq, PDBCHAIN *chain, char *bestMatch, char *aln1, char *aln2, DOMAIN **pDomains);
 void SetChainType(DOMAIN *domain, char *header);
+void SetIFResidues(DOMAIN *domain, char *header);
 void PrintDomains(DOMAIN *domains);
+void SetDomainBoundaries(DOMAIN *domain);
+void PairDomains(DOMAIN *domains);
 
 
 
@@ -200,6 +213,12 @@ BOOL ParseCmdLine(int argc, char **argv, char *infile)
       {
          switch(argv[0][1])
          {
+         case 'v':
+            gVerbose = TRUE;
+            break;
+         case 'q':
+            gVerbose = FALSE;
+            break;
          case 'h':
             return(FALSE);
             break;
@@ -284,6 +303,8 @@ BOOL ProcessFile(WHOLEPDB *wpdb, char *infile, FILE *dataFp)
       return(FALSE);
    }
 
+   PairDomains(domains);
+   
    PrintDomains(domains);
    FREELIST(domains, DOMAIN);
    
@@ -297,7 +318,10 @@ void GetSequenceForChain(PDBCHAIN *chain, char *sequence)
    PDBRESIDUE *r;
    for(r=chain->residues; r!=NULL; NEXT(r))
    {
-      sequence[i++] = blThrone(r->resnam);
+      if(!strncmp(r->start->record_type, "ATOM", 4))
+      {
+         sequence[i++] = blThrone(r->resnam);
+      }
    }
 }
 
@@ -437,10 +461,14 @@ BOOL CheckAndMask(char *sequence, FILE *dbFp, PDBCHAIN *chain, DOMAIN **pDomains
    /* If we found an antibody sequence               */
    if(maxScore > ABTHRESHOLD)
    {
-      fprintf(stderr, "Best match: %s *** %.4f\n",
-              bestMatch, maxScore);
-      fprintf(stderr, "SEQ: %s\n", bestAlign1);
-      fprintf(stderr, "DOM: %s\n\n", bestAlign2);
+      if(gVerbose)
+      {
+         fprintf(stderr, "Best match: %s *** %.4f\n",
+                 bestMatch, maxScore);
+         fprintf(stderr, "SEQ: %s\n", bestAlign1);
+         fprintf(stderr, "DOM: %s\n\n", bestAlign2);
+      }
+      
       MaskAndAssignDomain(sequence, chain, bestMatch, bestAlign1, bestAlign2, pDomains);
       found = TRUE;
    }
@@ -459,18 +487,57 @@ void SetChainType(DOMAIN *domain, char *header)
    }
 }
 
+void SetIFResidues(DOMAIN *domain, char *header)
+{
+   char *ptr1, *ptr2;
+   domain->nInterface = 0;
+
+   if((ptr1 = strchr(header, '['))!=NULL)
+   {
+      ptr1++;
+      
+      while((ptr2 = strchr(ptr1, ','))!=NULL)
+      {
+         *ptr2 = '\0';
+         sscanf(ptr1, "%d", &(domain->interface[domain->nInterface++]));
+         ptr1=ptr2+1;
+      }
+      
+      if((ptr2 = strchr(ptr1, ']'))!=NULL)
+      {
+         *ptr2 = '\0';
+         sscanf(ptr1, "%d", &(domain->interface[domain->nInterface++]));
+      }
+   }
+}
+
 void PrintDomains(DOMAIN *domains)
 {
    DOMAIN *d;
    int i;
+   
    for(d=domains; d!=NULL; NEXT(d))
    {
-      printf("Chain: %s Start: %d Stop: %d Type: %c\n",
+      printf("DomNum: %d Chain: %s Start: %d Stop: %d Type: %c PairsWith: %d\n",
+             d->domainNumber,
              d->chain->chain,
              d->startSeqRes,
-             d->stopSeqRes,
-             d->chainType);
+             d->lastSeqRes,
+             d->chainType,
+             (d->pairedDomain==NULL)?0:d->pairedDomain->domainNumber);
       printf("%s\n\n", d->domSeq);
+#ifdef DEBUG
+      for(i=0; i<d->nInterface; i++)
+      {
+         printf("%d ", d->interface[i]);
+      }
+      printf("\n");
+#endif
+/*
+      blWritePDBRecord(stdout,d->startRes);
+      blWritePDBRecord(stdout,d->lastRes);
+*/
+      
    }
 }
 
@@ -481,17 +548,19 @@ void MaskAndAssignDomain(char *seq, PDBCHAIN *chain, char *header, char *seqAln,
           domPos    = 0,
           alnPos    = 0,
           domSeqPos = 0;
-   DOMAIN *d;
+   DOMAIN *d, *prevD;
 
    if(*pDomains == NULL)
    {
       INIT((*pDomains), DOMAIN);
       d = *pDomains;
+      prevD = NULL;
    }
    else
    {
       d = *pDomains;
       LAST(d);
+      prevD = d;
       ALLOCNEXT(d, DOMAIN);
    }
    if(d==NULL)
@@ -500,11 +569,17 @@ void MaskAndAssignDomain(char *seq, PDBCHAIN *chain, char *header, char *seqAln,
       exit(1);
    }
    d->startSeqRes = -1;
-   d->stopSeqRes  = -1;
+   d->lastSeqRes  = -1;
    d->nInterface  = 0;
    d->chain       = chain;
+   d->pairIntDistSq = 100000000.0;
+   d->pairCofGDistSq = 100000000.0;
+   d->domainNumber = (prevD==NULL)?1:prevD->domainNumber+1;
+   d->pairedDomain = NULL;
+   
    SetChainType(d, header);
-
+   SetIFResidues(d, header);
+   
    for(seqPos=0, alnPos=0; seqPos<strlen(seqAln); seqPos++)
    {
       while(seqAln[alnPos] == '-')  /* Skip insertions */
@@ -519,13 +594,157 @@ void MaskAndAssignDomain(char *seq, PDBCHAIN *chain, char *header, char *seqAln,
 #ifdef DEBUG
          printf("Seqpos %d SeqRes %c DomRes %c\n", seqPos, seqAln[alnPos], domAln[alnPos]);
 #endif
-         d->stopSeqRes = seqPos;
+         d->lastSeqRes = seqPos;
          d->domSeq[domSeqPos++] = seq[seqPos];
          seq[seqPos] = 'X';
       }
       alnPos++;
    }
    d->domSeq[domSeqPos] = '\0';
+
+   SetDomainBoundaries(d);
 }
 
+void SetDomainBoundaries(DOMAIN *domain)
+{
+   int resnum = 0,
+      nIntCoor = 0,
+      nCoor,
+      i;
+   
+   PDB *p,
+       *nextRes;
+
+   for(p=domain->chain->start; p!=domain->chain->stop; p=nextRes)
+   {
+      nextRes = blFindNextResidue(p);
+      if(resnum == domain->startSeqRes)
+      {
+         domain->startRes = p;
+      }
+      else if(resnum == domain->lastSeqRes)
+      {
+         domain->lastRes = p;
+         domain->stopRes = nextRes;
+         break;
+      }
+      
+      resnum++;
+   }
+
+   domain->CofG.x = domain->CofG.y = domain->CofG.z = 0.0;
+   nCoor  = 0;
+   
+   for(p=domain->startRes; p!=domain->stopRes; NEXT(p))
+   {
+      if(!strncmp(p->atnam, "CA  ", 4))
+      {
+         domain->CofG.x += p->x;
+         domain->CofG.y += p->y;
+         domain->CofG.z += p->z;
+         nCoor++;
+      }
+   }
+   domain->CofG.x /= nCoor;
+   domain->CofG.y /= nCoor;
+   domain->CofG.z /= nCoor;
+
+   domain->IntCofG.x = domain->IntCofG.y = domain->IntCofG.z = 0.0;
+   nIntCoor = 0;
+   resnum   = 0;
+
+   for(p=domain->startRes; p!=domain->stopRes; p=nextRes)
+   {
+      PDB *q;
+      nextRes = blFindNextResidue(p);
+      for(q=p; q!=nextRes; NEXT(q))
+      {
+         for(i=0; i<domain->nInterface; i++)
+         {
+            if(resnum == domain->interface[i])
+            {
+               PDB *r;
+               
+               for(r=p; r!=nextRes; NEXT(r))
+               {
+                  if(!strncmp(r->atnam, "CA  ", 4))
+                  {
+                     domain->IntCofG.x += r->x;
+                     domain->IntCofG.y += r->y;
+                     domain->IntCofG.z += r->z;
+                     nIntCoor++;
+                  }
+               }
+               break;
+            }
+
+         }
+      }
+      resnum++;
+   }
+   domain->IntCofG.x /= nIntCoor;
+   domain->IntCofG.y /= nIntCoor;
+   domain->IntCofG.z /= nIntCoor;
+}
+
+void PairDomains(DOMAIN *domains)
+{
+   DOMAIN *d1, *d2;
+   
+   for(d1=domains; d1!=NULL; NEXT(d1))
+   {
+      for(d2=domains; d2!=NULL; NEXT(d2))
+      {
+         REAL distCofG;
+         VEC3F *c1, *c2;
+         c1 = &(d1->CofG);
+         c2 = &(d2->CofG);
+
+         distCofG = DISTSQ(c1, c2);
+#ifdef DEBUG
+         printf("CofG Distance: %.3f\n", sqrt(distCofG));
+#endif
+         
+         if((distCofG < COFGDISTCUTSQ) && (distCofG > 1.0))
+         {
+            REAL distInt;
+            
+            c1 = &(d1->IntCofG);
+            c2 = &(d2->IntCofG);
+
+            distInt = DISTSQ(c1, c2);
+            if(distInt < INTDISTCUTSQ)
+            {
+               if(distInt < distCofG)
+               {
+                  if((distCofG < d1->pairCofGDistSq) ||
+                     (distInt  < d1->pairIntDistSq)  ||
+                     (distCofG < d2->pairCofGDistSq) ||
+                     (distInt  < d2->pairIntDistSq))
+                     
+                  {
+                     d1->pairCofGDistSq = distCofG;
+                     d1->pairIntDistSq  = distInt;
+                     d2->pairCofGDistSq = distCofG;
+                     d2->pairIntDistSq  = distInt;
+                     d1->pairedDomain = d2;
+                     d2->pairedDomain = d1;
+                  }
+               }
+            }
+            
+#ifdef DEBUG
+            printf("Interface Distance: %.3f\n", sqrt(dist));
+#endif
+            
+         }
+         
+         
+      }
+#ifdef DEBUG
+      printf("\n");
+#endif      
+   }
+   
+}
 
