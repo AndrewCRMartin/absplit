@@ -69,6 +69,9 @@
 #define MAXBUFF  240
 #define HUGEBUFF 10000
 #define MAXSEQ   10000
+#define ABTHRESHOLD 0.5
+#define GAPOPENPENALTY 5
+#define GAPEXTPENALTY  2
 
 /************************************************************************/
 /* Globals
@@ -87,7 +90,6 @@ void ExePathName(char *str, BOOL pathonly);
 BOOL CheckAndMask(char *sequence, FILE *dataFp);
 FILE *OpenSequenceDataFile(void);
 REAL CompareSeqs(char *theSeq, char *seq, char *align1, char *align2);
-int CalcShortSeqLen(char *align1, char *align2);
 void Mask(char *seq, char *aln1, char *aln2);
 
 
@@ -118,6 +120,8 @@ datafile was not installed\n", PROGNAME);
                exit(1);
             }
             
+
+            blReadMDM("BLOSUM62");
             
             if(!ProcessFile(wpdb, infile, dataFp))
             {
@@ -253,7 +257,7 @@ BOOL ProcessFile(WHOLEPDB *wpdb, char *infile, FILE *dataFp)
          
          if(!strncmp(chain->start->record_type, "ATOM", 4))
          {
-            printf("***Handling chain: %s\n", chain->chain);
+            printf("\n***Handling chain: %s\n", chain->chain);
             FindVHVLDomains(chain, dataFp);
          }
          
@@ -328,69 +332,44 @@ FILE *OpenSequenceDataFile(void)
    \return               Score for alignment
 
    - 31.03.20 Original   By: ACRM
+   - 20.09.21 Modified to use affine alignment and mutation matrix
 */
 REAL CompareSeqs(char *theSeq, char *seq, char *align1, char *align2)
 {
    int  score;
    int  alignLen;
-   int  shortSeqLen = MIN(strlen(theSeq), strlen(seq));
-   
-   score = blAlign(theSeq, strlen(theSeq),
-                   seq, strlen(seq),
-                   FALSE, /* verbose  */
-                   TRUE,  /* identity */
-                   5,     /* penalty  */
-                   align1,
-                   align2,
-                   &alignLen);
-   align1[alignLen] = align2[alignLen] = '\0';
+   int  bestPossibleScore;
 
-   shortSeqLen = CalcShortSeqLen(align1, align2);
+   bestPossibleScore = blAffinealign(seq, strlen(seq),
+                                     seq, strlen(seq),
+                                     FALSE,          /* verbose  */
+                                     FALSE,          /* identity */
+                                     GAPOPENPENALTY, /* penalty  */
+                                     GAPEXTPENALTY,  /* extension  */
+                                     align1,
+                                     align2,
+                                     &alignLen);
+
+   score = blAffinealign(theSeq, strlen(theSeq),
+                         seq, strlen(seq),
+                         FALSE,          /* verbose  */
+                         FALSE,          /* identity */
+                         GAPOPENPENALTY, /* penalty  */
+                         GAPEXTPENALTY,  /* extension  */
+                         align1,
+                         align2,
+                         &alignLen);
+   align1[alignLen] = align2[alignLen] = '\0';
 
 #ifdef DEBUG   
    fprintf(stderr, "\n>>>%s\n", align1);
-   fprintf(stderr, ">>>%s %d\n", align2, shortSeqLen);
+   fprintf(stderr, ">>>%s\n",   align2);
 #endif
    
-   return((REAL)score / (REAL)shortSeqLen);
+   return((REAL)score / (REAL)bestPossibleScore);
 }
 
 
-/************************************************************************/
-int CalcShortSeqLen(char *align1, char *align2)
-{
-   int start, stop, i, len1=0, len2=0,
-      alnLen = strlen(align1);
-   
-
-   /* Find where the alignment starts                                   */
-   for(start=0; start<alnLen; start++)
-   {
-      if((align1[start] != '-') && (align2[start] != '-'))
-         break;
-   }
-   /* Find where the alignment stops                                    */
-   for(stop=alnLen-1; stop>start; stop--)
-   {
-      if((align1[stop] != '-') && (align2[stop] != '-'))
-         break;
-   }
-   /* Step between start and stop and calculate the number of residues 
-      in each sequence
-   */
-   for(i=start; i<=stop; i++)
-   {
-      if(align1[i] != '-')
-         len1++;
-      if(align2[i] != '-')
-         len2++;
-   }
-
-   return(MIN(len1, len2));
-}
-            
-            
-            
 void FindVHVLDomains(PDBCHAIN *chain, FILE *dataFp)
 {
    char sequence[MAXSEQ];
@@ -434,7 +413,7 @@ BOOL CheckAndMask(char *sequence, FILE *dbFp)
    }
 
    /* If we found an antibody sequence               */
-   if(maxScore > 0.5)
+   if(maxScore > ABTHRESHOLD)
    {
       fprintf(stderr, "Best match: %s *** %.4f\n",
               bestMatch, maxScore);
