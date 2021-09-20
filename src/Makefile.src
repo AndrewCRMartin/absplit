@@ -1,7 +1,7 @@
 CC      = gcc
 BINDIR  = {bindir}
 DATADIR = {datadir}
-CFLAGS  = -O3 -ansi -Wall -pedantic -I$(HOME)/include -L$(HOME)/lib
+CFLAGS  = -O3 -ansi -Wall -pedantic -I$(HOME)/include -L$(HOME)/lib -Wno-stringop-truncation
 LFLAGS  = -lbiop -lgen -lm -lxml2
 TARGETS = absplit
 
@@ -20,6 +20,6 @@ distclean : clean
 clean :
 	\rm -f *.o $(TARGETS)
 
-absplit : absplit.c
+absplit : absplit.c absplit.h Makefile
 	$(CC) $(CFLAGS) -o $@ $< $(LFLAGS)
 

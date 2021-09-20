@@ -73,6 +73,23 @@
 #define GAPOPENPENALTY 5
 #define GAPEXTPENALTY  2
 #define SCOREMATRIX    "BLOSUM62"
+#define MAXINTERFACE   20
+#define MAXRESID       16
+
+typedef struct _domain
+{
+   int  startSeqRes,
+        stopSeqRes,
+        nInterface,
+        interface[MAXINTERFACE];
+   char startRes[MAXRESID],
+        stopRes[MAXRESID],
+        domSeq[MAXSEQ],
+        chainType;
+   PDBCHAIN *chain;
+   struct _domain *next;
+}
+DOMAIN;
 
 /************************************************************************/
 /* Globals
@@ -85,13 +102,16 @@ BOOL gVerbose = TRUE;
 BOOL ParseCmdLine(int argc, char **argv, char *infile);
 void UsageDie(void);
 BOOL ProcessFile(WHOLEPDB *wpdb, char *infile, FILE *dataFp);
-void FindVHVLDomains(PDBCHAIN *chain, FILE *dataFp);
+DOMAIN *FindVHVLDomains(PDBCHAIN *chain, FILE *dataFp, DOMAIN *domains);
 void GetSequenceForChain(PDBCHAIN *chain, char *sequence);
 void ExePathName(char *str, BOOL pathonly);
-BOOL CheckAndMask(char *sequence, FILE *dataFp);
+BOOL CheckAndMask(char *sequence, FILE *dataFp, PDBCHAIN *chain, DOMAIN **pDomains);
 FILE *OpenSequenceDataFile(void);
 REAL CompareSeqs(char *theSeq, char *seq, char *align1, char *align2);
-void Mask(char *seq, char *aln1, char *aln2);
+void MaskAndAssignDomain(char *seq, PDBCHAIN *chain, char *bestMatch, char *aln1, char *aln2, DOMAIN **pDomains);
+void SetChainType(DOMAIN *domain, char *header);
+void PrintDomains(DOMAIN *domains);
+
 
 
 /************************************************************************/
@@ -236,9 +256,10 @@ void GetFilestem(char *infile, char *filestem)
 /************************************************************************/
 BOOL ProcessFile(WHOLEPDB *wpdb, char *infile, FILE *dataFp)
 {
-   char filestem[MAXBUFF];
+   char      filestem[MAXBUFF];
    PDBSTRUCT *pdbs;
-   
+   DOMAIN    *domains = NULL;
+
    GetFilestem(infile, filestem);
    if((pdbs = blAllocPDBStructure(wpdb->pdb))!=NULL)
    {
@@ -254,19 +275,21 @@ BOOL ProcessFile(WHOLEPDB *wpdb, char *infile, FILE *dataFp)
          if(!strncmp(chain->start->record_type, "ATOM", 4))
          {
             printf("\n***Handling chain: %s\n", chain->chain);
-            FindVHVLDomains(chain, dataFp);
+            domains = FindVHVLDomains(chain, dataFp, domains);
          }
-         
       }
-      
    }
    else
    {
       return(FALSE);
    }
+
+   PrintDomains(domains);
+   FREELIST(domains, DOMAIN);
    
    return(TRUE);
 }
+
 
 void GetSequenceForChain(PDBCHAIN *chain, char *sequence)
 {
@@ -366,20 +389,23 @@ REAL CompareSeqs(char *theSeq, char *seq, char *align1, char *align2)
 }
 
 
-void FindVHVLDomains(PDBCHAIN *chain, FILE *dataFp)
+DOMAIN *FindVHVLDomains(PDBCHAIN *chain, FILE *dataFp, DOMAIN *domains)
 {
    char sequence[MAXSEQ];
+   
    GetSequenceForChain(chain, sequence);
 #ifdef DEBUG
    printf("Chain: %s Sequence: %s\n", chain->chain, sequence);
 #endif
    while(TRUE)
    {
-      if(!CheckAndMask(sequence, dataFp)) break;
+      if(!CheckAndMask(sequence, dataFp, chain, &domains)) break;
    }
+   return(domains);
+   
 }
 
-BOOL CheckAndMask(char *sequence, FILE *dbFp)
+BOOL CheckAndMask(char *sequence, FILE *dbFp, PDBCHAIN *chain, DOMAIN **pDomains)
 {
    char        bestMatch[MAXBUFF+1];
    REAL        maxScore = 0.0;
@@ -413,30 +439,93 @@ BOOL CheckAndMask(char *sequence, FILE *dbFp)
    {
       fprintf(stderr, "Best match: %s *** %.4f\n",
               bestMatch, maxScore);
-      fprintf(stderr, "%s\n", bestAlign1);
-      fprintf(stderr, "%s\n", bestAlign2);
-      Mask(sequence, bestAlign1, bestAlign2);
+      fprintf(stderr, "SEQ: %s\n", bestAlign1);
+      fprintf(stderr, "DOM: %s\n\n", bestAlign2);
+      MaskAndAssignDomain(sequence, chain, bestMatch, bestAlign1, bestAlign2, pDomains);
       found = TRUE;
    }
    
    return(found);
 }
 
-void Mask(char *seq, char *aln1, char *aln2)
+void SetChainType(DOMAIN *domain, char *header)
 {
-   int i, j;
-   for(i=0, j=0; i<strlen(seq); i++)
+   char *ptr;
+   domain->chainType = '?';
+   if((ptr = strchr(header, '|'))!=NULL)
    {
-      while(aln1[j] == '-')  /* Skip insertions */
-      {
-         j++;
-      }
-      if(aln2[j] != '-')
-      {
-         seq[i] = 'X';
-      }
-      j++;
+      ptr--;
+      domain->chainType = *ptr;
    }
+}
+
+void PrintDomains(DOMAIN *domains)
+{
+   DOMAIN *d;
+   int i;
+   for(d=domains; d!=NULL; NEXT(d))
+   {
+      printf("Chain: %s Start: %d Stop: %d Type: %c\n",
+             d->chain->chain,
+             d->startSeqRes,
+             d->stopSeqRes,
+             d->chainType);
+      printf("%s\n\n", d->domSeq);
+   }
+}
+
+void MaskAndAssignDomain(char *seq, PDBCHAIN *chain, char *header, char *seqAln,
+                         char *domAln, DOMAIN **pDomains)
+{
+   int    seqPos    = 0,
+          domPos    = 0,
+          alnPos    = 0,
+          domSeqPos = 0;
+   DOMAIN *d;
+
+   if(*pDomains == NULL)
+   {
+      INIT((*pDomains), DOMAIN);
+      d = *pDomains;
+   }
+   else
+   {
+      d = *pDomains;
+      LAST(d);
+      ALLOCNEXT(d, DOMAIN);
+   }
+   if(d==NULL)
+   {
+      fprintf(stderr,"Error (%s): No memory for list of domains\n", PROGNAME);
+      exit(1);
+   }
+   d->startSeqRes = -1;
+   d->stopSeqRes  = -1;
+   d->nInterface  = 0;
+   d->chain       = chain;
+   SetChainType(d, header);
+
+   for(seqPos=0, alnPos=0; seqPos<strlen(seqAln); seqPos++)
+   {
+      while(seqAln[alnPos] == '-')  /* Skip insertions */
+      {
+         alnPos++;
+      }
+      if((domAln[alnPos] != '-') &&
+         (domAln[alnPos] != '\0'))
+      {
+         if(d->startSeqRes == (-1))
+            d->startSeqRes = seqPos;
+#ifdef DEBUG
+         printf("Seqpos %d SeqRes %c DomRes %c\n", seqPos, seqAln[alnPos], domAln[alnPos]);
+#endif
+         d->stopSeqRes = seqPos;
+         d->domSeq[domSeqPos++] = seq[seqPos];
+         seq[seqPos] = 'X';
+      }
+      alnPos++;
+   }
+   d->domSeq[domSeqPos] = '\0';
 }
 
 
