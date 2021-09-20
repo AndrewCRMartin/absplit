@@ -17,14 +17,13 @@ my $datasub = $config{'datasub'};
 my $allseq  = "$dataDir/allabs.faa";
 my $repseq  = "$dataDir/cdhit.faa";
 
-`mkdir -p $dataDir`;
-unlink $allseq;
-
-if((! -e "$dataDir/templates.faa") || defined($::f) || defined($::force))
+if((! -e "$repseq") || defined($::f) || defined($::force))
 {
-    print "Getting list of antibody PDB files...";
+    `mkdir -p $dataDir`;
+    unlink $allseq;
+    print STDERR "Getting list of antibody PDB files...";
     my @pdbfiles = GetFileList($abdir, '.pdb');
-    print "done\n";
+    print STDERR "done\n";
 
     print STDERR "Extracting sequence data and concatenating files...";
     foreach my $file (@pdbfiles)
@@ -35,7 +34,7 @@ if((! -e "$dataDir/templates.faa") || defined($::f) || defined($::force))
         `pdbgetchain L,H ${abdir}/$file | pdb2pir -c -f -l ${pdbcode}_ >>$allseq`;
         print STDERR '.';
     }
-    print "done\n";
+    print STDERR "done\n";
 
     # Grab and compile CD-HIT if not there
     if( ! -d "cdhit" )
@@ -54,6 +53,10 @@ if((! -e "$dataDir/templates.faa") || defined($::f) || defined($::force))
     #print STDERR "Antibody template sequences are in $tplDir\n";
     unlink $allseq;
     unlink "${repseq}.clstr";
+}
+else
+{
+    print STDERR "Non-redundant sequences already installed\n";
 }
 
 

@@ -1,8 +1,10 @@
-#!/usr/bin/perl
+#!/usr/bin/perl -s
 
 use lib '.';
 use strict;
 use config;
+
+my $force = (defined($::f)||defined($::force))?'-force':'';
 
 my %config = config::ReadConfig('absplit.conf');
 
@@ -11,11 +13,17 @@ my $datasub = $config{'datasub'};
 my $datadir = "$bindir/$datasub";              # Data for absplit
 $config{'datadir'} = $datadir;                 # Put it in the config
 
-if(! -e "$datadir/cdhit.faa")
+# Build the template data if not present
+if((! -e "./data/templates.faa") || ($force ne ''))
 {
-    `(cd dataprep; ./maketemplates/getpdbabseqs.pl)`;
+    `(cd dataprep; ./maketemplates/getpdbabseqs.pl $force)`;
+    `(cd dataprep; ./maketemplates/findifresidues.pl $force > ../data/templates.faa)`;
 }
+# Install the template data
+`mkdir -p $datadir`;
+`cp -R data/* $datadir`;
 
+# Build and install the executable
 MakeMake(%config);
 `(cd src; make; make install)`;
 

@@ -1,4 +1,4 @@
-#!/usr/bin/perl
+#!/usr/bin/perl -s
 #*************************************************************************
 #
 #   Program:    
@@ -54,23 +54,43 @@ use lib $FindBin::Bin;
 use strict;
 use fasta;
 
-use Cwd qw(abs_path);
-my $dataDir   = abs_path("$FindBin::Bin/../../data");
-my $cdhitFile = "$dataDir/cdhit.faa";
-
-
 @::keyResidues = qw/L38 L40 L41 L44 L46 L87 H33 H42 H45 H60 H62 H91 H105/;
 
-if(open(my $in, '<', $cdhitFile))
+use Cwd qw(abs_path);
+my $dataDir      = abs_path("$FindBin::Bin/../../data");
+my $cdhitFile    = "$dataDir/cdhit.faa";
+my $templateFile = "$dataDir/templates.faa";
+
+if((! -e $templateFile) || defined($::f) || defined($::force))
 {
-    my($id, $info, $sequence);
-    while((($id, $info, $sequence) = fasta::ReadFasta($in)) && ($id ne ""))
+    if(open(my $in, '<', $cdhitFile))
     {
-        my $header = FindIFResidues($info, $sequence);
-        print "$header\n";
-        print "$sequence\n";
+        if(open(my $out, '>', $templateFile))
+        {
+            my($id, $info, $sequence);
+            print STDERR "Finding interface residues";
+            while((($id, $info, $sequence) = fasta::ReadFasta($in)) && ($id ne ""))
+            {
+                print STDERR '.';
+                my $header = FindIFResidues($info, $sequence);
+                print $out "$header\n";
+                print $out "$sequence\n";
+            }
+            print STDERR "done\n";
+            close($out);
+        }
+        else
+        {
+            print STDERR "Error: unable to write template file: $templateFile\n";
+            exit 1;
+        }
+        close($in);
     }
-    close($in);
+    else
+    {
+        print STDERR "Error: Unable to read CD-HIT file: $cdhitFile\n";
+        exit 1;
+    }
 }
 
 sub FindIFResidues
