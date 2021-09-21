@@ -97,6 +97,7 @@ typedef struct _domain
          IntCofG;
    REAL  pairIntDistSq,
       pairCofGDistSq;
+   BOOL  written;
    
    PDBCHAIN *chain;
    struct _domain *pairedDomain;
@@ -128,6 +129,8 @@ void SetCDRResidues(DOMAIN *domain, char *header);
 void PrintDomains(DOMAIN *domains);
 void SetDomainBoundaries(DOMAIN *domain);
 void PairDomains(DOMAIN *domains);
+void WriteDomains(DOMAIN *domains, char *filestem);
+
 
 
 
@@ -308,8 +311,9 @@ BOOL ProcessFile(WHOLEPDB *wpdb, char *infile, FILE *dataFp)
    }
 
    PairDomains(domains);
-   
    PrintDomains(domains);
+   WriteDomains(domains, filestem);
+   
    FREELIST(domains, DOMAIN);
    
    return(TRUE);
@@ -558,7 +562,6 @@ void SetCDRResidues(DOMAIN *domain, char *header)
 void PrintDomains(DOMAIN *domains)
 {
    DOMAIN *d;
-   int i;
 
    printf("\n***Results\n");
    
@@ -580,7 +583,7 @@ void PrintDomains(DOMAIN *domains)
       }
       printf("\n\n");
 #endif
-#ifndef DEBUG
+#ifdef DEBUG
       printf("CDR: ");
       for(i=0; i<d->nCDRRes; i++)
       {
@@ -600,7 +603,6 @@ void MaskAndAssignDomain(char *seq, PDBCHAIN *chain, char *header, char *seqAln,
                          char *domAln, DOMAIN **pDomains)
 {
    int    seqPos    = 0,
-          domPos    = 0,
           alnPos    = 0,
           domSeqPos = 0;
    DOMAIN *d, *prevD;
@@ -802,5 +804,49 @@ void PairDomains(DOMAIN *domains)
 #endif      
    }
    
+}
+
+
+
+void WriteDomains(DOMAIN *domains, char *filestem)
+{
+   DOMAIN *d, *pd;
+   static int domCount = 0;
+
+   for(d=domains; d!=NULL; NEXT(d))
+      d->written = FALSE;
+   
+   for(d=domains; d!=NULL; NEXT(d))
+   {
+      if(!d->written)
+      {
+         FILE *fp;
+         char outFile[MAXBUFF+1];
+         
+         sprintf(outFile, "%s_%d.pdb", filestem, domCount++);
+         outFile[MAXBUFF] = '\0';
+
+         if((fp = fopen(outFile, "w"))!=NULL)
+         {
+            PDB *p;
+            d->written = TRUE;
+            /* Write this domain */
+            for(p=d->startRes; p!=d->stopRes; NEXT(p))
+            {
+               blWritePDBRecord(fp, p);
+            }
+            /* Write partner domain */
+            if((pd = d->pairedDomain) != NULL)
+            {
+               pd->written = TRUE;
+               for(p=pd->startRes; p!=pd->stopRes; NEXT(p))
+               {
+                  blWritePDBRecord(fp, p);
+               }
+            }
+            fclose(fp);
+         }
+      }
+   }
 }
 
