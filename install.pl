@@ -17,7 +17,7 @@ $config{'datadir'} = $datadir;                 # Put it in the config
 if((! -e "./data/templates.faa") || ($force ne ''))
 {
     `(cd dataprep; ./maketemplates/getpdbabseqs.pl $force)`;
-    `(cd dataprep; ./maketemplates/findifresidues.pl $force > ../data/templates.faa)`;
+    `(cd dataprep; ./maketemplates/findinteractingresidues.pl $force)`;
 }
 # Install the template data
 `mkdir -p $datadir`;
