@@ -75,6 +75,7 @@
 #define GAPEXTPENALTY  2
 #define SCOREMATRIX    "BLOSUM62"
 #define MAXINTERFACE   20
+#define MAXCDRRES      160
 #define MAXRESID       16
 #define COFGDISTCUTSQ  1225.0 /* 35^2 */
 #define INTDISTCUTSQ   900.0  /* 30^2 */
@@ -84,7 +85,9 @@ typedef struct _domain
         startSeqRes,
         lastSeqRes,
         nInterface,
-        interface[MAXINTERFACE];
+        interface[MAXINTERFACE],
+        nCDRRes,
+        CDRRes[MAXCDRRES];
    char domSeq[MAXSEQ],
         chainType;
    PDB  *startRes,
@@ -121,6 +124,7 @@ REAL CompareSeqs(char *theSeq, char *seq, char *align1, char *align2);
 void MaskAndAssignDomain(char *seq, PDBCHAIN *chain, char *bestMatch, char *aln1, char *aln2, DOMAIN **pDomains);
 void SetChainType(DOMAIN *domain, char *header);
 void SetIFResidues(DOMAIN *domain, char *header);
+void SetCDRResidues(DOMAIN *domain, char *header);
 void PrintDomains(DOMAIN *domains);
 void SetDomainBoundaries(DOMAIN *domain);
 void PairDomains(DOMAIN *domains);
@@ -489,15 +493,22 @@ void SetChainType(DOMAIN *domain, char *header)
 
 void SetIFResidues(DOMAIN *domain, char *header)
 {
-   char *ptr1, *ptr2;
+   char *ptr1, *ptr2, *bar;
+   char headerCopy[MAXBUFF+1];
+   
    domain->nInterface = 0;
-
-   if((ptr1 = strchr(header, '['))!=NULL)
+   strncpy(headerCopy, header, MAXBUFF);
+   headerCopy[MAXBUFF] = '\0';
+   if((ptr1 = strchr(headerCopy, '['))!=NULL)
    {
       ptr1++;
+      bar = strchr(ptr1, '|');
       
       while((ptr2 = strchr(ptr1, ','))!=NULL)
       {
+         if(ptr2 > bar)
+            break;
+
          *ptr2 = '\0';
          sscanf(ptr1, "%d", &(domain->interface[domain->nInterface++]));
          ptr1=ptr2+1;
@@ -511,10 +522,45 @@ void SetIFResidues(DOMAIN *domain, char *header)
    }
 }
 
+void SetCDRResidues(DOMAIN *domain, char *header)
+{
+   char *ptr1, *ptr2;
+   char headerCopy[MAXBUFF+1];
+   
+   domain->nCDRRes = 0;
+
+   strncpy(headerCopy, header, MAXBUFF);
+   headerCopy[MAXBUFF] = '\0';
+   if((ptr1 = strchr(headerCopy, '['))!=NULL)
+   {
+      ptr1++;
+      if((ptr1 = strchr(ptr1, '['))!=NULL)
+      {
+         ptr1++;
+      
+         while((ptr2 = strchr(ptr1, ','))!=NULL)
+         {
+            *ptr2 = '\0';
+            sscanf(ptr1, "%d", &(domain->CDRRes[domain->nCDRRes++]));
+            ptr1=ptr2+1;
+         }
+      
+         if((ptr2 = strchr(ptr1, ']'))!=NULL)
+         {
+            *ptr2 = '\0';
+            sscanf(ptr1, "%d", &(domain->CDRRes[domain->nCDRRes++]));
+         }
+      }
+      
+   }
+}
+
 void PrintDomains(DOMAIN *domains)
 {
    DOMAIN *d;
    int i;
+
+   printf("\n***Results\n");
    
    for(d=domains; d!=NULL; NEXT(d))
    {
@@ -527,11 +573,20 @@ void PrintDomains(DOMAIN *domains)
              (d->pairedDomain==NULL)?0:d->pairedDomain->domainNumber);
       printf("%s\n\n", d->domSeq);
 #ifdef DEBUG
+      printf("IF: ");
       for(i=0; i<d->nInterface; i++)
       {
          printf("%d ", d->interface[i]);
       }
-      printf("\n");
+      printf("\n\n");
+#endif
+#ifndef DEBUG
+      printf("CDR: ");
+      for(i=0; i<d->nCDRRes; i++)
+      {
+         printf("%d ", d->CDRRes[i]);
+      }
+      printf("\n\n");
 #endif
 /*
       blWritePDBRecord(stdout,d->startRes);
@@ -579,6 +634,7 @@ void MaskAndAssignDomain(char *seq, PDBCHAIN *chain, char *header, char *seqAln,
    
    SetChainType(d, header);
    SetIFResidues(d, header);
+   SetCDRResidues(d, header);
    
    for(seqPos=0, alnPos=0; seqPos<strlen(seqAln); seqPos++)
    {
