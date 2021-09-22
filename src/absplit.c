@@ -82,7 +82,7 @@
 #define CONTACTDISTSQ   25.0   /* 5^2  - used to find antigen contacts */
 #define MAXANTIGEN      16
 #define MAXCHAINLABEL   8
-#define MINAGCONTACTS   100 
+#define MINAGCONTACTS   20
 #define CHAINTYPE_ATOM  (APTR)1
 #define CHAINTYPE_HET   (APTR)2
 
@@ -143,6 +143,8 @@ void FlagAntigens(DOMAIN *domains, PDBSTRUCT *pdbs);
 void CheckAntigenContacts(DOMAIN *domain, PDBSTRUCT *pdbs);
 void SetChainTypes(PDBCHAIN *chains);
 BOOL inIntArray(int value, int *array, int arrayLen);
+BOOL regionsMakeContact(PDB *start1, PDB *stop1, PDB *start2, PDB *stop2);
+
 
 
 
@@ -891,6 +893,7 @@ void FlagAntigens(DOMAIN *domains, PDBSTRUCT *pdbs)
 {
    DOMAIN *d;
 
+   printf("\n***Looking for non-het antigens\n");
 
    for(d=domains; d!=NULL; NEXT(d))
    {
@@ -901,215 +904,11 @@ void FlagAntigens(DOMAIN *domains, PDBSTRUCT *pdbs)
    {
       if(!d->used)
       {
-         d->used               = TRUE;
-         if(d->pairedDomain != NULL) d->pairedDomain->used = TRUE;
+         d->used = TRUE;
+         if(d->pairedDomain != NULL)
+            d->pairedDomain->used = TRUE;
          
          CheckAntigenContacts(d, pdbs);
-      }
-   }
-}
-
-void CheckAntigenContacts(DOMAIN *domain, PDBSTRUCT *pdbs)
-{
-   PDB      *p, *q;
-   PDBCHAIN *chain;
-   int      nContacts = 0;
-   DOMAIN   *pairedDomain = domain->pairedDomain;
-   char ResIDp[8],
-      lastResIDp[8],
-      ResIDq[8],
-      lastResIDq[8];
-   BOOL newResp = FALSE,
-      newResq = FALSE;
-               
-
-   printf("\n***Looking for non-het antigens\n");
-   
-   domain->nAntigenChains       = 0;
-   if(pairedDomain != NULL)
-      pairedDomain->nAntigenChains = 0;
-
-   /* Go through each of the ATOM chains */
-   newResp = newResq = FALSE;
-   for(chain=pdbs->chains; chain!=NULL; NEXT(chain))
-   {
-      if(chain->extras == CHAINTYPE_ATOM)
-      {
-         nContacts = 0;
-         /* If this is not the chain for this domain or the paired domain,
-            then it's a potential antigen
-         */
-         if((chain != domain->chain) &&
-            ((pairedDomain == NULL) ||
-             (chain != pairedDomain->chain)))
-         {
-            int resnum = -1;
-            lastResIDp[0] = lastResIDq[0] = '\0';
-
-            printf("Checking domain %d (chain %s) against chain %s\n",
-                   domain->domainNumber, domain->chain->chain, chain->chain);
-            
-            /* Check this domain for contacts */
-            for(p=domain->startRes; p!=domain->stopRes; NEXT(p))
-            {
-               blBuildResSpec(p, ResIDp);
-               if(strcmp(ResIDp, lastResIDp))
-               {
-                  /* New residue */
-                  newResp = TRUE;
-#ifdef DEBUG
-                  printf("Res change (p): %s -> %s\n", lastResIDp, ResIDp);
-#endif
-                  strcpy(lastResIDp, ResIDp);
-                  resnum++;
-               }
-               /*
-               else
-               {
-                  newResp = FALSE;
-               }
-               */
-
-               /* If this is a CDR residue */
-               if(inIntArray(resnum, domain->CDRRes, domain->nCDRRes))
-               {
-                  for(q=chain->start; q!=chain->stop; NEXT(q))
-                  {
-                     blBuildResSpec(q, ResIDq);
-                     if(strcmp(ResIDq, lastResIDq))
-                     {
-                        /* New residue */
-#ifdef DEBUG
-                        printf("Res change (q): %s -> %s\n", lastResIDq, ResIDq);
-#endif
-                        newResq = TRUE;
-                        strcpy(lastResIDq, ResIDq);
-                     }
-                     /*
-                     else
-                     {
-                        newResq = FALSE;
-                     }
-                     */
-
-/*                     if(!strncmp(q->atnam, "CA  ", 4)) */
-                     if(newResp || newResq)
-                     {
-                        if(DISTSQ(p,q) < CONTACTDISTSQ)
-                        {
-                           newResp = newResq = FALSE;
-#ifndef DEBUG
-                           printf("Contact %s%d%-s.%-s with %s%d%-s.%-s (%.3f)\n",
-                                  p->chain, p->resnum, p->insert, p->atnam,
-                                  q->chain, q->resnum, q->insert, q->atnam,
-                                  sqrt(DISTSQ(p,q)));
-#endif
-                           if(++nContacts >= MINAGCONTACTS)
-                           {
-                              domain->antigenChains[domain->nAntigenChains++] = chain;
-                              if(pairedDomain != NULL)
-                                 pairedDomain->antigenChains[pairedDomain->nAntigenChains++] = chain;
-                              goto break1;
-                           }
-                           
-                        }
-                     }
-                  }
-               }
-
-               /*
-               if(!strncmp(p->atnam, "CA  ", 4))
-               {
-                  resnum++;
-               }
-               */
-            }
-            
-            /* Check partner domain for contacts */
-            if(pairedDomain != NULL)
-            {
-               printf("Checking domain %d (chain %s) against chain %s\n",
-                      pairedDomain->domainNumber, pairedDomain->chain->chain, chain->chain);
-            
-               lastResIDp[0] = lastResIDq[0] = '\0';
-                  
-               nContacts = 0;
-               resnum    = 0;
-               for(p=pairedDomain->startRes; p!=pairedDomain->stopRes; NEXT(p))
-               {
-                  blBuildResSpec(p, ResIDp);
-                  if(strcmp(ResIDp, lastResIDp))
-                  {
-                     /* New residue */
-                     newResp = TRUE;
-#ifdef DEBUG
-                     printf("Res change (p): %s -> %s\n", lastResIDp, ResIDp);
-#endif
-                     strcpy(lastResIDp, ResIDp);
-                     resnum++;
-                  }
-                  /*
-                  else
-                  {
-                     newResp = FALSE;
-                  }
-                  */
-                     
-                  if(inIntArray(resnum, pairedDomain->CDRRes, pairedDomain->nCDRRes))
-                  {
-                     for(q=chain->start; q!=chain->stop; NEXT(q))
-                     {
-                        blBuildResSpec(q, ResIDq);
-                        if(strcmp(ResIDq, lastResIDq))
-                        {
-                           /* New residue */
-#ifdef DEBUG
-                           printf("Res change (q): %s -> %s\n", lastResIDq, ResIDq);
-#endif
-                           newResq = TRUE;
-                           strcpy(lastResIDq, ResIDq);
-                        }
-                        /*
-                        else
-                        {
-                           newResq = FALSE;
-                        }
-                        */
-
-                        if(newResp || newResq)
-                        {
-                           if(DISTSQ(p,q) < CONTACTDISTSQ)
-                           {
-                              newResp = newResq = FALSE;
-#ifndef DEBUG
-                              printf("Contact %s%d%-s.%-s with %s%d%-s.%-s (%.3f)\n",
-                                     p->chain, p->resnum, p->insert, p->atnam,
-                                     q->chain, q->resnum, q->insert, q->atnam,
-                                     sqrt(DISTSQ(p,q)));
-#endif
-                              if(++nContacts >= MINAGCONTACTS)
-                              {
-                                 domain->antigenChains[domain->nAntigenChains++] = chain;
-                                 if(pairedDomain != NULL)
-                                    pairedDomain->antigenChains[pairedDomain->nAntigenChains++] = chain;
-                                 goto break1;
-                              }
-                           }
-                        }
-                        
-                     }
-                  }
-                  /*
-                  if(!strncmp(p->atnam, "CA  ", 4))
-                  {
-                     resnum++;
-                  }
-                  */
-               }
-            }
-         break1:
-            continue;
-         }
       }
    }
 }
@@ -1146,4 +945,143 @@ BOOL inIntArray(int value, int *array, int arrayLen)
 
    return(FALSE);
 }
+
+BOOL regionsMakeContact(PDB *start1, PDB *stop1, PDB *start2, PDB *stop2)
+{
+   PDB *p, *q;
+   
+   for(p=start1; p!=stop1; NEXT(p))
+   {
+      for(q=start2; q!=stop2; NEXT(q))
+      {
+         if(DISTSQ(p,q) < CONTACTDISTSQ)
+         {
+#ifndef DEBUG
+            printf("Contact %s%d%-s.%-s with %s%d%-s.%-s (%.3f)\n",
+                   p->chain, p->resnum, p->insert, p->atnam,
+                   q->chain, q->resnum, q->insert, q->atnam,
+                   sqrt(DISTSQ(p,q)));
+#endif
+            return(TRUE);
+
+         }
+      }
+   }
+
+   return(FALSE);
+}
+
+void CheckAntigenContacts(DOMAIN *domain, PDBSTRUCT *pdbs)
+{
+   PDB      *p, *q, *nextResP, *nextResQ;
+   PDBCHAIN *chain;
+   int      nContacts = 0;
+   DOMAIN   *pairedDomain = domain->pairedDomain;
+
+   
+   domain->nAntigenChains       = 0;
+   if(pairedDomain != NULL)
+      pairedDomain->nAntigenChains = 0;
+
+   /* Go through each of the ATOM chains */
+   for(chain=pdbs->chains; chain!=NULL; NEXT(chain))
+   {
+      if(chain->extras == CHAINTYPE_ATOM)
+      {
+         nContacts = 0;
+         /* If this is not the chain for this domain or the paired domain,
+            then it's a potential antigen
+         */
+         if((chain != domain->chain) &&
+            ((pairedDomain == NULL) ||
+             (chain != pairedDomain->chain)))
+         {
+            int resnum = 0;
+
+            printf("Checking domain %d (chain %s) against chain %s\n",
+                   domain->domainNumber, domain->chain->chain, chain->chain);
+            
+            /* Check this domain for contacts a residue at a time */
+            for(p=domain->startRes; p!=domain->stopRes; p=nextResP)
+            {
+               nextResP = blFindNextResidue(p);
+
+               /* If this is a CDR residue */
+               if(inIntArray(resnum, domain->CDRRes, domain->nCDRRes))
+               {
+                  for(q=chain->start; q!=chain->stop; q=nextResQ)
+                  {
+                     nextResQ = blFindNextResidue(q);
+                     
+                     if(regionsMakeContact(p, nextResP, q, nextResQ))
+                     {
+#ifdef DEBUG
+                        printf("Domain %d (chain %s) makes %d contacts with chain %s\n",
+                               domain->domainNumber, domain->chain->chain, nContacts, chain->chain);
+#endif                           
+                        if(++nContacts >= MINAGCONTACTS)
+                        {
+                           if(domain->nAntigenChains < MAXANTIGEN)
+                              domain->antigenChains[domain->nAntigenChains++] = chain;
+                           if((pairedDomain != NULL) && (pairedDomain->nAntigenChains < MAXANTIGEN))
+                              pairedDomain->antigenChains[pairedDomain->nAntigenChains++] = chain;
+#ifdef DEBUG
+                           goto break1;
+#endif
+                        }
+                     }
+                  }
+               }
+
+               resnum++;
+            }
+            
+            /* Check partner domain for contacts */
+            if(pairedDomain != NULL)
+            {
+               printf("Checking partner domain %d (chain %s) against chain %s\n",
+                      pairedDomain->domainNumber, pairedDomain->chain->chain, chain->chain);
+            
+               resnum    = 0;
+               for(p=pairedDomain->startRes; p!=pairedDomain->stopRes; p=nextResP)
+               {
+                  nextResP = blFindNextResidue(p);
+                     
+                  if(inIntArray(resnum, pairedDomain->CDRRes, pairedDomain->nCDRRes))
+                  {
+                     for(q=chain->start; q!=chain->stop; q=nextResQ)
+                     {
+                        nextResQ = blFindNextResidue(q);
+                        
+                        if(regionsMakeContact(p, nextResP, q, nextResQ))
+                        {
+#ifdef DEBUG
+                           printf("Domain %d (chain %s) makes %d contacts with chain %s\n",
+                                  pairedDomain->domainNumber, pairedDomain->chain->chain,
+                                  nContacts, chain->chain);
+#endif
+
+                           if(++nContacts >= MINAGCONTACTS)
+                           {
+                              if(domain->nAntigenChains < MAXANTIGEN)
+                                 domain->antigenChains[domain->nAntigenChains++] = chain;
+                              if((pairedDomain != NULL) && (pairedDomain->nAntigenChains < MAXANTIGEN))
+                                 pairedDomain->antigenChains[pairedDomain->nAntigenChains++] = chain;
+#ifdef DEBUG
+                              goto break1;
+#endif
+                           }
+                        }
+                     }
+                  }
+                  resnum++;
+               }
+            }
+         break1:
+            continue;
+         }
+      }
+   }
+}
+
 
