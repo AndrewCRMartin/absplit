@@ -79,10 +79,11 @@
 #define MAXRESID        16
 #define COFGDISTCUTSQ   1225.0 /* 35^2 - used to find possible VH/VL pairs */
 #define INTDISTCUTSQ    900.0  /* 30^2 - used to find VH/VL interface contact */
-#define CONTACTDISTSQ   25.0   /* 5^2  - used to find antigen contacts */
+#define CONTACTDISTSQ   36.0   /* 6^2  - used to find antigen contacts */
+#define MINAGCONTACTS   14     /* Tweaked with CONTACTDISTSQ to get Ag for
+                                  6o8d but not too much for 1dee */
 #define MAXANTIGEN      16
 #define MAXCHAINLABEL   8
-#define MINAGCONTACTS   20
 #define CHAINTYPE_ATOM  (APTR)1
 #define CHAINTYPE_HET   (APTR)2
 
@@ -118,6 +119,7 @@ DOMAIN;
 /* Globals
 */
 BOOL gVerbose = TRUE;
+BOOL gNoAntigen = FALSE;
 
 /************************************************************************/
 /* Prototypes
@@ -240,6 +242,9 @@ BOOL ParseCmdLine(int argc, char **argv, char *infile)
             break;
          case 'q':
             gVerbose = FALSE;
+            break;
+         case 'n':
+            gNoAntigen = TRUE;
             break;
          case 'h':
             return(FALSE);
@@ -612,20 +617,21 @@ void PrintDomains(DOMAIN *domains)
       }
       printf("\n");
 #ifdef DEBUG
-      printf("IF: ");
-      for(i=0; i<d->nInterface; i++)
       {
-         printf("%d ", d->interface[i]);
+         int i;
+         printf("IF: ");
+         for(i=0; i<d->nInterface; i++)
+         {
+            printf("%d ", d->interface[i]);
+         }
+         printf("\n\n");
+         printf("CDR: ");
+         for(i=0; i<d->nCDRRes; i++)
+         {
+            printf("%d ", d->CDRRes[i]);
+         }
+         printf("\n\n");
       }
-      printf("\n\n");
-#endif
-#ifdef DEBUG
-      printf("CDR: ");
-      for(i=0; i<d->nCDRRes; i++)
-      {
-         printf("%d ", d->CDRRes[i]);
-      }
-      printf("\n\n");
 #endif
 /*
       blWritePDBRecord(stdout,d->startRes);
@@ -831,7 +837,7 @@ void PairDomains(DOMAIN *domains)
             }
             
 #ifdef DEBUG
-            printf("Interface Distance: %.3f\n", sqrt(dist));
+            printf("Interface Distance: %.3f\n", sqrt(distInt));
 #endif
             
          }
@@ -851,7 +857,9 @@ void WriteDomains(DOMAIN *domains, char *filestem)
 {
    DOMAIN *d, *pd;
    static int domCount = 0;
+   int    i;
 
+   
    for(d=domains; d!=NULL; NEXT(d))
       d->used = FALSE;
    
@@ -874,6 +882,7 @@ void WriteDomains(DOMAIN *domains, char *filestem)
             {
                blWritePDBRecord(fp, p);
             }
+            fprintf(fp,"TER   \n");
             /* Write partner domain */
             if((pd = d->pairedDomain) != NULL)
             {
@@ -882,7 +891,22 @@ void WriteDomains(DOMAIN *domains, char *filestem)
                {
                   blWritePDBRecord(fp, p);
                }
+               fprintf(fp,"TER   \n");
             }
+            if(!gNoAntigen)
+            {
+               /* Write antigen chains */
+               for(i=0; i<d->nAntigenChains; i++)
+               {
+                  PDBCHAIN *chain = d->antigenChains[i];
+                  for(p=chain->start; p!=chain->stop; NEXT(p))
+                  {
+                     blWritePDBRecord(fp, p);
+                  }
+                  fprintf(fp,"TER   \n");
+               }
+            }
+            
             fclose(fp);
          }
       }
@@ -956,7 +980,7 @@ BOOL regionsMakeContact(PDB *start1, PDB *stop1, PDB *start2, PDB *stop2)
       {
          if(DISTSQ(p,q) < CONTACTDISTSQ)
          {
-#ifndef DEBUG
+#ifdef DEBUG
             printf("Contact %s%d%-s.%-s with %s%d%-s.%-s (%.3f)\n",
                    p->chain, p->resnum, p->insert, p->atnam,
                    q->chain, q->resnum, q->insert, q->atnam,
@@ -998,8 +1022,10 @@ void CheckAntigenContacts(DOMAIN *domain, PDBSTRUCT *pdbs)
          {
             int resnum = 0;
 
+#ifdef DEBUG
             printf("Checking domain %d (chain %s) against chain %s\n",
                    domain->domainNumber, domain->chain->chain, chain->chain);
+#endif
             
             /* Check this domain for contacts a residue at a time */
             for(p=domain->startRes; p!=domain->stopRes; p=nextResP)
@@ -1025,7 +1051,7 @@ void CheckAntigenContacts(DOMAIN *domain, PDBSTRUCT *pdbs)
                               domain->antigenChains[domain->nAntigenChains++] = chain;
                            if((pairedDomain != NULL) && (pairedDomain->nAntigenChains < MAXANTIGEN))
                               pairedDomain->antigenChains[pairedDomain->nAntigenChains++] = chain;
-#ifdef DEBUG
+#ifndef DEBUG
                            goto break1;
 #endif
                         }
@@ -1039,9 +1065,10 @@ void CheckAntigenContacts(DOMAIN *domain, PDBSTRUCT *pdbs)
             /* Check partner domain for contacts */
             if(pairedDomain != NULL)
             {
+#ifdef DEBUG
                printf("Checking partner domain %d (chain %s) against chain %s\n",
                       pairedDomain->domainNumber, pairedDomain->chain->chain, chain->chain);
-            
+#endif
                resnum    = 0;
                for(p=pairedDomain->startRes; p!=pairedDomain->stopRes; p=nextResP)
                {
@@ -1067,7 +1094,7 @@ void CheckAntigenContacts(DOMAIN *domain, PDBSTRUCT *pdbs)
                                  domain->antigenChains[domain->nAntigenChains++] = chain;
                               if((pairedDomain != NULL) && (pairedDomain->nAntigenChains < MAXANTIGEN))
                                  pairedDomain->antigenChains[pairedDomain->nAntigenChains++] = chain;
-#ifdef DEBUG
+#ifndef DEBUG
                               goto break1;
 #endif
                            }
