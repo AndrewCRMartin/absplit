@@ -59,6 +59,7 @@
 #include "bioplib/pdb.h"
 #include "bioplib/seq.h"
 #include "bioplib/sequtil.h"
+#include "bioplib/array.h"
 
 #include "absplit.h"
 
@@ -83,7 +84,8 @@
 #define MINAGCONTACTS   14     /* Tweaked with CONTACTDISTSQ to get Ag for
                                   6o8d but not too much for 1dee */
 #define MAXANTIGEN      16
-#define MAXCHAINLABEL   8
+#define MAXCHAINS       80
+#define MAXCHAINLABEL   blMAXCHAINLABEL
 #define CHAINTYPE_ATOM  (APTR)1
 #define CHAINTYPE_HET   (APTR)2
 
@@ -127,7 +129,7 @@ BOOL gNoAntigen = FALSE;
 BOOL ParseCmdLine(int argc, char **argv, char *infile);
 void UsageDie(void);
 BOOL ProcessFile(WHOLEPDB *wpdb, char *infile, FILE *dataFp);
-DOMAIN *FindVHVLDomains(PDBCHAIN *chain, FILE *dataFp, DOMAIN *domains);
+DOMAIN *FindVHVLDomains(WHOLEPDB *wpdb, PDBCHAIN *chain, FILE *dataFp, DOMAIN *domains);
 void GetSequenceForChain(PDBCHAIN *chain, char *sequence);
 void ExePathName(char *str, BOOL pathonly);
 BOOL CheckAndMask(char *sequence, FILE *dataFp, PDBCHAIN *chain, DOMAIN **pDomains);
@@ -146,9 +148,7 @@ void CheckAntigenContacts(DOMAIN *domain, PDBSTRUCT *pdbs);
 void SetChainTypes(PDBCHAIN *chains);
 BOOL inIntArray(int value, int *array, int arrayLen);
 BOOL regionsMakeContact(PDB *start1, PDB *stop1, PDB *start2, PDB *stop2);
-
-
-
+void GetSequenceForChainSeqres(WHOLEPDB *wpdb, PDBCHAIN *chain, char *sequence);
 
 
 /************************************************************************/
@@ -320,11 +320,10 @@ BOOL ProcessFile(WHOLEPDB *wpdb, char *infile, FILE *dataFp)
                 chain->start->record_type);
 #endif
          
-/*         if(!strncmp(chain->start->record_type, "ATOM  ", 6)) */
          if(chain->extras == CHAINTYPE_ATOM)
          {
             printf("\n***Handling chain: %s\n", chain->chain);
-            domains = FindVHVLDomains(chain, dataFp, domains);
+            domains = FindVHVLDomains(wpdb, chain, dataFp, domains);
          }
       }
 
@@ -451,11 +450,13 @@ REAL CompareSeqs(char *theSeq, char *seq, char *align1, char *align2)
 }
 
 
-DOMAIN *FindVHVLDomains(PDBCHAIN *chain, FILE *dataFp, DOMAIN *domains)
+DOMAIN *FindVHVLDomains(WHOLEPDB *wpdb, PDBCHAIN *chain, FILE *dataFp, DOMAIN *domains)
 {
    char sequence[MAXSEQ];
    
-   GetSequenceForChain(chain, sequence);
+   GetSequenceForChainSeqres(wpdb, chain, sequence);
+   
+/*   GetSequenceForChain(chain, sequence); */
 #ifdef DEBUG
    printf("Chain: %s Sequence: %s\n", chain->chain, sequence);
 #endif
@@ -1111,4 +1112,82 @@ void CheckAntigenContacts(DOMAIN *domain, PDBSTRUCT *pdbs)
    }
 }
 
+void GetSequenceForChainSeqres(WHOLEPDB *wpdb, PDBCHAIN *chain, char *sequence)
+{
+   static MODRES *modres = NULL;
+   static char   *seqres = NULL,
+                 *seqresCopy = NULL,
+                 **seqchains = NULL;
+   int chainNum = 0;
+   BOOL foundChain = FALSE;
+   
 
+   if(seqres == NULL)
+   {
+      if((seqchains =
+          (char **)blArray2D(sizeof(char), MAXCHAINS, MAXCHAINLABEL))!=NULL)
+      {
+         modres = blGetModresWholePDB(wpdb);
+         seqres = blGetSeqresAsStringWholePDB(wpdb, seqchains, modres, FALSE);
+         if(seqres)
+         {
+            if((seqresCopy = (char *)malloc((strlen(seqres)+1)*sizeof(char)))==NULL)
+            {
+               fprintf(stderr, "No memory for copy the sequence\n");
+               exit(1);
+            }
+         }
+      }
+   }
+
+   if(seqres)
+   {
+      strcpy(seqresCopy, seqres);
+      for(chainNum=0; seqchains[chainNum][0] != '\0'; chainNum++)
+      {
+         if(CHAINMATCH(chain->chain, seqchains[chainNum]))
+         {
+            foundChain = TRUE;
+            break;
+         }
+      }
+   }
+
+   if(foundChain)
+   {
+      int i;
+      char *chp = seqresCopy;
+      for(i=0; i<chainNum; i++)
+      {
+         if(chp)
+         {
+            if((chp = strchr(chp, '*'))!=NULL)
+            {
+               *chp = '\0';
+               chp++;
+            }
+         }
+      }
+      if(chp)
+      {
+         char *star;
+         if((star = strchr(chp, '*'))!=NULL)
+         {
+            *star = '\0';
+         }
+      }
+
+      for(i=0; chp[i]; i++)
+      {
+         sequence[i] = chp[i];
+      }
+      sequence[i] = '\0';
+   }
+   else
+   {
+      GetSequenceForChain(chain, sequence);
+   }
+}
+
+   
+   
