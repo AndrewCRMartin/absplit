@@ -86,6 +86,8 @@
 #define MAXCHAINLABEL   8
 #define CHAINTYPE_ATOM  (APTR)1
 #define CHAINTYPE_HET   (APTR)2
+#define CONTACT_NO      (APTR)0
+#define CONTACT_YES     (APTR)1
 
 typedef struct _domain
 {
@@ -607,13 +609,14 @@ void PrintDomains(DOMAIN *domains)
    
    for(d=domains; d!=NULL; NEXT(d))
    {
-      printf("DomNum: %d Chain: %s Start: %d Stop: %d Type: %c PairsWith: %d\n",
+      printf("Domain: %d Chain: %s Start: %d Stop: %d Type: %c PairsWithDomain: %d (Chain: %s)\n",
              d->domainNumber,
              d->chain->chain,
              d->startSeqRes,
              d->lastSeqRes,
              d->chainType,
-             (d->pairedDomain==NULL)?0:d->pairedDomain->domainNumber);
+             (d->pairedDomain==NULL)?0:d->pairedDomain->domainNumber,
+             (d->pairedDomain==NULL)?"none":d->pairedDomain->chain->chain);
       printf("%s\n", d->domSeq);
       if(d->nAntigenChains)
       {
@@ -874,7 +877,6 @@ void WriteDomains(DOMAIN *domains, char *filestem)
    DOMAIN *d, *pd;
    static int domCount = 0;
    int    i;
-
    
    for(d=domains; d!=NULL; NEXT(d))
       d->used = FALSE;
@@ -921,6 +923,7 @@ void WriteDomains(DOMAIN *domains, char *filestem)
                   }
                   fprintf(fp,"TER   \n");
                }
+
             }
             
             fclose(fp);
@@ -1141,7 +1144,62 @@ BOOL CheckAntigenContacts(DOMAIN *domain, PDBSTRUCT *pdbs)
 
 void FlagHetAntigens(DOMAIN *domains, PDBSTRUCT *pdbs)
 {
-   printf("\n***Looking for HET antigen\n");
+   DOMAIN *d;
+   PDBCHAIN *c;
+   
+   printf("\n***Looking for HET antigens\n");
+
+   /* Step through the chains */
+   for(c=pdbs->chains; c!=NULL; NEXT(c))
+   {
+      /* If it's a HET chain */
+      if(c->extras == CHAINTYPE_HET)
+      {
+         PDBRESIDUE *r;
+         /* Go through the residues in this HET chain */
+         for(r=c->residues; r!=NULL; NEXT(r))
+         {
+            /* Assume this residue doesn't make contact */
+            r->extras = CONTACT_NO;
+            
+            if(!ISWATER(r)) /* If it isn't a water */
+            {
+               PDB *pc;
+               /* Go through the atoms in this non-water HET residue */
+               for(pc=r->start; pc!=r->stop; NEXT(pc))
+               {
+                  /* Go through the antibody domains */
+                  for(d=domains; d!=NULL; NEXT(d))
+                  {
+                     PDB *pd;
+                     /* Go through the atoms in this antibody domain */
+                     for(pd=d->startRes; pd!=d->stopRes; NEXT(pd))
+                     {
+                        /* If this atom is close enough to the HET residue */
+                        if(DISTSQ(pc, pd) < CONTACTDISTSQ)
+                        {
+                           printf("HET group %s%d%s contacts Domain %d\n",
+                                  pc->chain, pc->resnum, pc->insert,
+                                  d->domainNumber);
+                                  
+#ifdef DEBUG
+                           printf("%s%d%s.%s contacts %s%d%s.%s\n",
+                                  pc->chain, pc->resnum, pc->insert, pc->atnam,
+                                  pd->chain, pd->resnum, pd->insert, pd->atnam);
+#endif
+                           /* Flag this HET residue as making contact */
+                           r->extras = CONTACT_YES;
+                           goto lastdomain;
+                        }
+                     }
+                  }
+               }
+            lastdomain:
+               continue;
+            }
+         }
+      }
+   }
 }
 
 
