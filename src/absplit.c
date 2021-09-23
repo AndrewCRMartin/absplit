@@ -78,7 +78,7 @@
 #define MAXCDRRES       160
 #define MAXRESID        16
 #define COFGDISTCUTSQ   1225.0 /* 35^2 - used to find possible VH/VL pairs */
-#define INTDISTCUTSQ    900.0  /* 30^2 - used to find VH/VL interface contact */
+#define INTDISTCUTSQ    400.0  /* 20^2 - used to find VH/VL interface contact */
 #define CONTACTDISTSQ   36.0   /* 6^2  - used to find antigen contacts */
 #define MINAGCONTACTS   14     /* Tweaked with CONTACTDISTSQ to get Ag for
                                   6o8d but not too much for 1dee */
@@ -682,7 +682,7 @@ void MaskAndAssignDomain(char *seq, PDBCHAIN *chain, char *header, char *seqAln,
    d->lastSeqRes  = -1;
    d->nInterface  = 0;
    d->chain       = chain;
-   d->pairIntDistSq = 100000000.0;
+   d->pairIntDistSq  = 100000000.0;
    d->pairCofGDistSq = 100000000.0;
    d->domainNumber = (prevD==NULL)?1:prevD->domainNumber+1;
    d->pairedDomain = NULL;
@@ -811,46 +811,48 @@ void PairDomains(DOMAIN *domains)
    {
       for(d2=domains; d2!=NULL; NEXT(d2))
       {
-         REAL distCofG;
+         REAL distCofGSq;
          VEC3F *c1, *c2;
          c1 = &(d1->CofG);
          c2 = &(d2->CofG);
 
-         distCofG = DISTSQ(c1, c2);
-#ifdef DEBUG
-         printf("CofG Distance: %.3f\n", sqrt(distCofG));
-#endif
+         distCofGSq = DISTSQ(c1, c2);
          
-         if((distCofG < COFGDISTCUTSQ) && (distCofG > 1.0))
+         if((distCofGSq < COFGDISTCUTSQ) && (distCofGSq > 1.0))
          {
-            REAL distInt;
+            REAL distIntSq;
             
             c1 = &(d1->IntCofG);
             c2 = &(d2->IntCofG);
 
-            distInt = DISTSQ(c1, c2);
-            if(distInt < INTDISTCUTSQ)
+            distIntSq = DISTSQ(c1, c2);
+            if(distIntSq < INTDISTCUTSQ)
             {
-               if(distInt < distCofG)
+               if(distIntSq < distCofGSq)
                {
-                  if((distCofG < d1->pairCofGDistSq) ||
-                     (distInt  < d1->pairIntDistSq)  ||
-                     (distCofG < d2->pairCofGDistSq) ||
-                     (distInt  < d2->pairIntDistSq))
-                     
+                  if(((distCofGSq < d1->pairCofGDistSq) ||
+                      (distIntSq  < d1->pairIntDistSq)) &&
+                     ((distCofGSq < d2->pairCofGDistSq) ||
+                      (distIntSq  < d2->pairIntDistSq)))
                   {
-                     d1->pairCofGDistSq = distCofG;
-                     d1->pairIntDistSq  = distInt;
-                     d2->pairCofGDistSq = distCofG;
-                     d2->pairIntDistSq  = distInt;
+                     d1->pairCofGDistSq = distCofGSq;
+                     d1->pairIntDistSq  = distIntSq;
+                     d2->pairCofGDistSq = distCofGSq;
+                     d2->pairIntDistSq  = distIntSq;
                      d1->pairedDomain = d2;
                      d2->pairedDomain = d1;
+#ifdef DEBUG
+                     printf("*Paired domain %d with %d\n", d1->domainNumber, d2->domainNumber);
+#endif
                   }
                }
             }
             
 #ifdef DEBUG
-            printf("Interface Distance: %.3f\n", sqrt(distInt));
+            printf("CofG Distance (domain %d to %d): %.3f\n",
+                   d1->domainNumber, d2->domainNumber, sqrt(distCofGSq));
+            printf("Interface Distance (domain %d to %d): %.3f\n\n",
+                   d1->domainNumber, d2->domainNumber, sqrt(distIntSq));
 #endif
             
          }
@@ -1139,7 +1141,7 @@ BOOL CheckAntigenContacts(DOMAIN *domain, PDBSTRUCT *pdbs)
 
 void FlagHetAntigens(DOMAIN *domains, PDBSTRUCT *pdbs)
 {
-
+   printf("\n***Looking for HET antigen\n");
 }
 
 
