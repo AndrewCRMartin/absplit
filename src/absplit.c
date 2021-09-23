@@ -83,20 +83,22 @@
 #define MINAGCONTACTS   14     /* Tweaked with CONTACTDISTSQ to get Ag for
                                   6o8d but not too much for 1dee */
 #define MAXANTIGEN      16
+#define MAXHETANTIGEN   160
 #define MAXCHAINLABEL   8
 #define CHAINTYPE_ATOM  (APTR)1
 #define CHAINTYPE_HET   (APTR)2
-#define CONTACT_NO      (APTR)0
-#define CONTACT_YES     (APTR)1
+#define RES_WRITTEN_NO  (APTR)0
+#define RES_WRITTEN_YES (APTR)1
 
 typedef struct _domain
 {
    int   domainNumber,
          startSeqRes,
          lastSeqRes,
+         interface[MAXINTERFACE],
          nInterface,
          nAntigenChains,
-         interface[MAXINTERFACE],
+         nHetAntigen,
          nCDRRes,
          CDRRes[MAXCDRRES];
    char  domSeq[MAXSEQ],
@@ -110,6 +112,7 @@ typedef struct _domain
          pairCofGDistSq;
    BOOL  used;
    
+   PDBRESIDUE *hetAntigen[MAXHETANTIGEN];
    PDBCHAIN *chain,
             *antigenChains[MAXANTIGEN];
    struct _domain *pairedDomain;
@@ -683,12 +686,15 @@ void MaskAndAssignDomain(char *seq, PDBCHAIN *chain, char *header, char *seqAln,
    }
    d->startSeqRes = -1;
    d->lastSeqRes  = -1;
-   d->nInterface  = 0;
    d->chain       = chain;
    d->pairIntDistSq  = 100000000.0;
    d->pairCofGDistSq = 100000000.0;
    d->domainNumber = (prevD==NULL)?1:prevD->domainNumber+1;
    d->pairedDomain = NULL;
+   d->nCDRRes      = 0;
+   d->nInterface   = 0;
+   d->nHetAntigen  = 0;
+   d->nAntigenChains = 0;
    
    SetChainType(d, header);
    SetIFResidues(d, header);
@@ -887,6 +893,7 @@ void WriteDomains(DOMAIN *domains, char *filestem)
       {
          FILE *fp;
          char outFile[MAXBUFF+1];
+         BOOL written = FALSE;
          
          sprintf(outFile, "%s_%d.pdb", filestem, domCount++);
          outFile[MAXBUFF] = '\0';
@@ -924,6 +931,57 @@ void WriteDomains(DOMAIN *domains, char *filestem)
                   fprintf(fp,"TER   \n");
                }
 
+               /* Write any HET chains */
+
+               /* Clear flags to say a residue has been written */
+               for(i=0; i<d->nHetAntigen; i++)
+               {
+                  PDBRESIDUE *res = d->hetAntigen[i];
+                  res->extras = RES_WRITTEN_NO;
+               }
+               if(pd!=NULL)
+               {
+                  for(i=0; i<pd->nHetAntigen; i++)
+                  {
+                     PDBRESIDUE *res = pd->hetAntigen[i];
+                     res->extras = RES_WRITTEN_NO;
+                  }
+               }
+               
+               /* First domain */
+               for(i=0; i<d->nHetAntigen; i++)
+               {
+                  PDBRESIDUE *res = d->hetAntigen[i];
+                  res->extras = RES_WRITTEN_YES;
+                  fprintf(stderr,"Writing domain %d HET residue %s\n", d->domainNumber, res->resid);
+                  for(p=res->start; p!=res->stop; NEXT(p))
+                  {
+                     blWritePDBRecord(fp, p);
+                  }
+               }
+               if(d->nHetAntigen)
+                  fprintf(fp,"TER   \n");
+
+               /* Partner domain */
+               if(pd!=NULL)
+               {
+                  for(i=0; i<pd->nHetAntigen; i++)
+                  {
+                     PDBRESIDUE *res = pd->hetAntigen[i];
+                     if(res->extras == RES_WRITTEN_NO)
+                     {
+                        fprintf(stderr,"Writing domain %d HET residue %s\n", pd->domainNumber, res->resid);
+                        written = TRUE;
+                        for(p=res->start; p!=res->stop; NEXT(p))
+                        {
+                           blWritePDBRecord(fp, p);
+                        }
+                     }
+                  }
+                  if(written)
+                     fprintf(fp,"TER   \n");
+               }
+               
             }
             
             fclose(fp);
@@ -1159,19 +1217,15 @@ void FlagHetAntigens(DOMAIN *domains, PDBSTRUCT *pdbs)
          /* Go through the residues in this HET chain */
          for(r=c->residues; r!=NULL; NEXT(r))
          {
-            /* Assume this residue doesn't make contact */
-            r->extras = CONTACT_NO;
-            
             if(!ISWATER(r)) /* If it isn't a water */
             {
-               PDB *pc;
-               /* Go through the atoms in this non-water HET residue */
-               for(pc=r->start; pc!=r->stop; NEXT(pc))
+               /* Go through the antibody domains */
+               for(d=domains; d!=NULL; NEXT(d))
                {
-                  /* Go through the antibody domains */
-                  for(d=domains; d!=NULL; NEXT(d))
+                  PDB *pc, *pd;
+                  /* Go through the atoms in this non-water HET residue */
+                  for(pc=r->start; pc!=r->stop; NEXT(pc))
                   {
-                     PDB *pd;
                      /* Go through the atoms in this antibody domain */
                      for(pd=d->startRes; pd!=d->stopRes; NEXT(pd))
                      {
@@ -1181,25 +1235,30 @@ void FlagHetAntigens(DOMAIN *domains, PDBSTRUCT *pdbs)
                            printf("HET group %s%d%s contacts Domain %d\n",
                                   pc->chain, pc->resnum, pc->insert,
                                   d->domainNumber);
-                                  
 #ifdef DEBUG
                            printf("%s%d%s.%s contacts %s%d%s.%s\n",
                                   pc->chain, pc->resnum, pc->insert, pc->atnam,
                                   pd->chain, pd->resnum, pd->insert, pd->atnam);
 #endif
                            /* Flag this HET residue as making contact */
-                           r->extras = CONTACT_YES;
-                           goto lastdomain;
-                        }
-                     }
-                  }
-               }
-            lastdomain:
-               continue;
-            }
-         }
-      }
-   }
+                           if(d->nHetAntigen < MAXHETANTIGEN)
+                           {
+                              d->hetAntigen[d->nHetAntigen++] = r;
+#ifndef DEBUG
+                              printf("Stored domain %d residue %s\n", d->domainNumber, r->resid);
+#endif
+                           }
+                           goto lastatom;
+                        }  /* In range */
+                     }  /* Step through atoms in this antibody domain */
+                  }  /* step through atoms in this non-water HET residue */
+               lastatom:
+                  continue;
+               }  /* step through domains */
+            }  /* not water */
+         }  /* step through residues in this HET chain */
+      }  /* Is a HET chain */
+   }  /* Step through chains */
 }
 
 
