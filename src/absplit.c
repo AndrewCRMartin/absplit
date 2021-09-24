@@ -65,8 +65,8 @@
 /************************************************************************/
 /* Defines and macros
 */
-#define PROGNAME        "absplit"
-#define VERSION         0.1
+#define PROGNAME        "abYsplit"
+#define VERSION         "V1.0"
 #define MAXBUFF         240
 #define HUGEBUFF        10000
 #define MAXSEQ          10000
@@ -121,7 +121,8 @@ typedef struct _domain
 /************************************************************************/
 /* Globals
 */
-BOOL gVerbose = TRUE;
+BOOL gVerbose   = FALSE;
+BOOL gQuiet     = FALSE;
 BOOL gNoAntigen = FALSE;
 
 
@@ -180,6 +181,7 @@ datafile was not installed\n", PROGNAME);
             /* Read the mutation matrix                                 */
             blReadMDM(SCOREMATRIX);
             
+            /* Do the real work of processing this file                 */
             if(!ProcessFile(wpdb, infile, dataFp))
             {
                fprintf(stderr,"Error (%s): Unable to split PDB into \
@@ -218,7 +220,6 @@ chains\n", PROGNAME);
 /*>BOOL ParseCmdLine(int argc, char **argv, char *infile)
    ----------------------------------------------------------------------
 *//**
-
    \param[in]      argc        Argument count
    \param[in]      **argv      Argument array
    \param[out]     *infile     Input filename (or blank string)
@@ -243,9 +244,11 @@ BOOL ParseCmdLine(int argc, char **argv, char *infile)
          {
          case 'v':
             gVerbose = TRUE;
+            gQuiet   = FALSE;
             break;
          case 'q':
             gVerbose = FALSE;
+            gQuiet   = TRUE;
             break;
          case 'n':
             gNoAntigen = TRUE;
@@ -279,8 +282,23 @@ BOOL ParseCmdLine(int argc, char **argv, char *infile)
 /************************************************************************/
 void UsageDie(void)
 {
+   printf("%s %s (c) UCL, Prof. Andrew C.R. Martin\n", PROGNAME, VERSION);
+
+   printf("\nUsage: abysplit [-v][-q][-n] file.pdb       \n");
+   printf("           -v Verbose\n");
+   printf("           -q Quiet\n");
+   printf("           -n Do not include the antigen in the output\n");
+   printf("\nTakes a PDB file containing one or more antibodies and \
+splits it into\n");
+   printf("separate antibody files, retaining the antigen in each. \
+Handles both\n");
+   printf("ATOM (protein) antigens and HETATM (hapten) antigens. Deals \
+with scFvs\n");
+   printf("and other complex non-standard structures.\n\n");
+
    exit(1);
 }
+
 
 /************************************************************************/
 void GetFilestem(char *infile, char *filestem)
@@ -296,12 +314,12 @@ void GetFilestem(char *infile, char *filestem)
    }
    else
    {
-      int  length;
-      length = stop-start;
+      int length = stop-start;
       strncpy(filestem, start, (int)length);
       filestem[(int)length] = '\0';
    }
 }
+
 
 /************************************************************************/
 BOOL ProcessFile(WHOLEPDB *wpdb, char *infile, FILE *dataFp)
@@ -353,8 +371,9 @@ BOOL ProcessFile(WHOLEPDB *wpdb, char *infile, FILE *dataFp)
 /************************************************************************/
 void GetSequenceForChain(PDBCHAIN *chain, char *sequence)
 {
-   int i=0;
+   int        i=0;
    PDBRESIDUE *r;
+
    if(chain->extras == CHAINTYPE_ATOM)
    {
       for(r=chain->residues; r!=NULL; NEXT(r))
@@ -369,15 +388,17 @@ void GetSequenceForChain(PDBCHAIN *chain, char *sequence)
 }
 
 /************************************************************************/
-/* From 
+/* 
+   From 
    https://www.linuxquestions.org/questions/showthread.php?threadid=273614
 */
 void ExePathName(char *str, BOOL pathonly)
 {
   FILE *fp;
-  char buf[PATH_MAX+100], *p;
+  char buf[PATH_MAX+100],
+       *p;
 
-  *str = '\0';
+  *str    = '\0';
   if(!(fp = fopen("/proc/self/maps", "r")))
     return;
 
@@ -393,7 +414,8 @@ void ExePathName(char *str, BOOL pathonly)
   if(pathonly)
   {
      p=strrchr(str, '/');
-     if(p!=NULL) *p='\0';
+     if(p!=NULL)
+        *p='\0';
   }
 }
 
@@ -439,17 +461,17 @@ REAL CompareSeqs(char *theSeq, char *seq, char *align1, char *align2)
                                      align2,
                                      &alignLen);
 
-   score = blAffinealign(theSeq, strlen(theSeq),
-                         seq, strlen(seq),
-                         FALSE,          /* verbose                     */
-                         FALSE,          /* identity                    */
-                         GAPOPENPENALTY, /* penalty                     */
-                         GAPEXTPENALTY,  /* extension                   */
-                         align1,
-                         align2,
-                         &alignLen);
+   score             = blAffinealign(theSeq, strlen(theSeq),
+                                     seq, strlen(seq),
+                                     FALSE,          /* verbose         */
+                                     FALSE,          /* identity        */
+                                     GAPOPENPENALTY, /* penalty         */
+                                     GAPEXTPENALTY,  /* extension       */
+                                     align1,
+                                     align2,
+                                     &alignLen);
 
-   align1[alignLen] = align2[alignLen] = '\0';
+   align1[alignLen]  = align2[alignLen] = '\0';
 
 #ifdef DEBUG   
    fprintf(stderr, "\n>>>%s\n", align1);
@@ -473,8 +495,8 @@ DOMAIN *FindVHVLDomains(PDBCHAIN *chain, FILE *dataFp, DOMAIN *domains)
    {
       if(!CheckAndMask(sequence, dataFp, chain, &domains)) break;
    }
+
    return(domains);
-   
 }
 
 /************************************************************************/
@@ -487,9 +509,9 @@ BOOL CheckAndMask(char *sequence, FILE *dbFp, PDBCHAIN *chain,
                align2[HUGEBUFF+1];
    static char bestAlign1[HUGEBUFF+1],
                bestAlign2[HUGEBUFF+1];
-   char header[MAXBUFF+1];
-   char *seq = NULL;
-   BOOL found = FALSE;
+   char        header[MAXBUFF+1];
+   char        *seq = NULL;
+   BOOL        found = FALSE;
    rewind(dbFp);
 
    /* Find the best match in the reference sequences                    */
@@ -498,7 +520,6 @@ BOOL CheckAndMask(char *sequence, FILE *dbFp, PDBCHAIN *chain,
       REAL score;
          
       score = CompareSeqs(sequence, seq, align1, align2);
-            
       if(score > maxScore)
       {
          maxScore = score;
@@ -527,6 +548,7 @@ BOOL CheckAndMask(char *sequence, FILE *dbFp, PDBCHAIN *chain,
    return(found);
 }
 
+
 /************************************************************************/
 void SetChainType(DOMAIN *domain, char *header)
 {
@@ -538,6 +560,7 @@ void SetChainType(DOMAIN *domain, char *header)
       domain->chainType = *ptr;
    }
 }
+
 
 /************************************************************************/
 void SetIFResidues(DOMAIN *domain, char *header)
@@ -560,7 +583,7 @@ void SetIFResidues(DOMAIN *domain, char *header)
 
          *ptr2 = '\0';
          sscanf(ptr1, "%d", &(domain->interface[domain->nInterface++]));
-         ptr1=ptr2+1;
+         ptr1  = ptr2+1;
       }
       
       if((ptr2 = strchr(ptr1, ']'))!=NULL)
@@ -581,6 +604,7 @@ void SetCDRResidues(DOMAIN *domain, char *header)
 
    strncpy(headerCopy, header, MAXBUFF);
    headerCopy[MAXBUFF] = '\0';
+
    if((ptr1 = strchr(headerCopy, '['))!=NULL)
    {
       ptr1++;
@@ -601,9 +625,9 @@ void SetCDRResidues(DOMAIN *domain, char *header)
             sscanf(ptr1, "%d", &(domain->CDRRes[domain->nCDRRes++]));
          }
       }
-      
    }
 }
+
 
 /************************************************************************/
 void PrintDomains(DOMAIN *domains)
@@ -658,6 +682,7 @@ PairsWithDomain: %d (Chain: %s)\n",
    }
 }
 
+
 /************************************************************************/
 void MaskAndAssignDomain(char *seq, PDBCHAIN *chain, char *header,
                          char *seqAln, char *domAln, DOMAIN **pDomains)
@@ -686,20 +711,20 @@ void MaskAndAssignDomain(char *seq, PDBCHAIN *chain, char *header,
               PROGNAME);
       exit(1);
    }
-   d->startSeqRes = -1;
-   d->lastSeqRes  = -1;
-   d->chain       = chain;
+   d->startSeqRes    = -1;
+   d->lastSeqRes     = -1;
+   d->chain          = chain;
    d->pairIntDistSq  = 100000000.0;
    d->pairCofGDistSq = 100000000.0;
-   d->domainNumber = (prevD==NULL)?1:prevD->domainNumber+1;
-   d->pairedDomain = NULL;
-   d->nCDRRes      = 0;
-   d->nInterface   = 0;
-   d->nHetAntigen  = 0;
+   d->domainNumber   = (prevD==NULL)?1:prevD->domainNumber+1;
+   d->pairedDomain   = NULL;
+   d->nCDRRes        = 0;
+   d->nInterface     = 0;
+   d->nHetAntigen    = 0;
    d->nAntigenChains = 0;
    
-   SetChainType(d, header);
-   SetIFResidues(d, header);
+   SetChainType(d,   header);
+   SetIFResidues(d,  header);
    SetCDRResidues(d, header);
    
    for(seqPos=0, alnPos=0; seqPos<strlen(seqAln); seqPos++)
@@ -708,6 +733,7 @@ void MaskAndAssignDomain(char *seq, PDBCHAIN *chain, char *header,
       {
          alnPos++;
       }
+      
       if((domAln[alnPos] != '-') &&
          (domAln[alnPos] != '\0'))
       {
@@ -759,7 +785,7 @@ void SetDomainBoundaries(DOMAIN *domain)
 
    /* Find the CofG of the domain                                       */
    domain->CofG.x = domain->CofG.y = domain->CofG.z = 0.0;
-   nCoor  = 0;
+   nCoor          = 0;
    
    for(p=domain->startRes; p!=domain->stopRes; NEXT(p))
    {
@@ -771,6 +797,7 @@ void SetDomainBoundaries(DOMAIN *domain)
          nCoor++;
       }
    }
+   
    domain->CofG.x /= nCoor;
    domain->CofG.y /= nCoor;
    domain->CofG.z /= nCoor;
@@ -783,6 +810,7 @@ void SetDomainBoundaries(DOMAIN *domain)
    for(p=domain->startRes; p!=domain->stopRes; p=nextRes)
    {
       PDB *q;
+      
       nextRes = blFindNextResidue(p);
       for(q=p; q!=nextRes; NEXT(q))
       {
@@ -813,6 +841,7 @@ void SetDomainBoundaries(DOMAIN *domain)
    domain->IntCofG.y /= nCoor;
    domain->IntCofG.z /= nCoor;
 }
+
 
 /************************************************************************/
 void PairDomains(DOMAIN *domains)
@@ -869,24 +898,20 @@ void PairDomains(DOMAIN *domains)
 #endif
             
          }
-         
-         
       }
 #ifdef DEBUG
       printf("\n");
 #endif      
    }
-   
 }
-
 
 
 /************************************************************************/
 void WriteDomains(DOMAIN *domains, char *filestem)
 {
-   DOMAIN *d, *pd;
+   DOMAIN     *d, *pd;
    static int domCount = 0;
-   int    i;
+   int        i;
    
    for(d=domains; d!=NULL; NEXT(d))
       d->used = FALSE;
@@ -912,6 +937,7 @@ void WriteDomains(DOMAIN *domains, char *filestem)
                blWritePDBRecord(fp, p);
             }
             fprintf(fp,"TER   \n");
+            
             /* Write partner domain                                     */
             if((pd = d->pairedDomain) != NULL)
             {
@@ -922,6 +948,7 @@ void WriteDomains(DOMAIN *domains, char *filestem)
                }
                fprintf(fp,"TER   \n");
             }
+            
             if(!gNoAntigen)
             {
                /* Write antigen chains                                  */
@@ -1045,6 +1072,7 @@ void SetChainTypes(PDBCHAIN *chains)
    }
 }
 
+
 /************************************************************************/
 BOOL InIntArray(int value, int *array, int arrayLen)
 {
@@ -1058,6 +1086,7 @@ BOOL InIntArray(int value, int *array, int arrayLen)
 
    return(FALSE);
 }
+
 
 /************************************************************************/
 BOOL RegionsMakeContact(PDB *start1, PDB *stop1, PDB *start2, PDB *stop2)
@@ -1085,10 +1114,12 @@ BOOL RegionsMakeContact(PDB *start1, PDB *stop1, PDB *start2, PDB *stop2)
    return(FALSE);
 }
 
+
 /************************************************************************/
 BOOL CheckAntigenContacts(DOMAIN *domain, PDBSTRUCT *pdbs)
 {
-   PDB      *p, *q, *nextResP, *nextResQ;
+   PDB      *p, *q,
+            *nextResP, *nextResQ;
    PDBCHAIN *chain;
    int      nContacts     = 0;
    DOMAIN   *pairedDomain = domain->pairedDomain;
@@ -1220,9 +1251,10 @@ contacts with chain %s\n",
 }
 
 
+/************************************************************************/
 void FlagHetAntigens(DOMAIN *domains, PDBSTRUCT *pdbs)
 {
-   DOMAIN *d;
+   DOMAIN   *d;
    PDBCHAIN *c;
    
    printf("\n***Looking for HET antigens\n");

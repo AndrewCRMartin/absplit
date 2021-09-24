@@ -3,6 +3,13 @@
 
 Code to take an antibody PDB file and split it into separate Fvs
 
+## Known issues
+
+1. The code needs to retain the PDB header for downstream steps
+2. Code needs to apply symmetry operators (e.g. 1b0w)
+3. Some truncated sequences won't score highly enough to be flagged
+as antibodies - just score over the aligned region.
+
 ## Algorithm
 
 1. Read the PDB file and split into chains
