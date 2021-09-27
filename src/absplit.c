@@ -154,6 +154,9 @@ void SetChainTypes(PDBCHAIN *chains);
 BOOL InIntArray(int value, int *array, int arrayLen);
 BOOL RegionsMakeContact(PDB *start1, PDB *stop1, PDB *start2, PDB *stop2);
 void FlagHetAntigens(DOMAIN *domains, PDBSTRUCT *pdbs);
+PDB *RelabelAntibodyChain(DOMAIN *domain, char *remark950);
+PDB *RelabelAntigenChains(DOMAIN *domain, char *remark950);
+
 
 
 /************************************************************************/
@@ -929,29 +932,45 @@ void WriteDomains(DOMAIN *domains, char *filestem)
 
          if((fp = fopen(outFile, "w"))!=NULL)
          {
-            PDB *p;
+            PDB *pdb1, *pdb2, *pdb3, *p;
+            char remark950[MAXANTIGEN * 100];
+            
             d->used = TRUE;
+
+            fprintf(fp, "REMARK 950 CHAIN-TYPE  LABEL ORIGINAL\n");
+            pdb1 = RelabelAntibodyChain(d,               remark950);
+            fprintf(fp, remark950);
+            pdb2 = RelabelAntibodyChain(d->pairedDomain, remark950);
+            fprintf(fp, remark950);
+            pdb3 = RelabelAntigenChains(d,               remark950);
+            fprintf(fp, remark950);
+            
             /* Write this domain                                        */
-            for(p=d->startRes; p!=d->stopRes; NEXT(p))
+            for(p=pdb1; p!=NULL; NEXT(p))
             {
                blWritePDBRecord(fp, p);
             }
             fprintf(fp,"TER   \n");
+            FREELIST(pdb1, PDB);
             
             /* Write partner domain                                     */
             if((pd = d->pairedDomain) != NULL)
             {
                pd->used = TRUE;
-               for(p=pd->startRes; p!=pd->stopRes; NEXT(p))
+               for(p=pdb2; p!=NULL; NEXT(p))
                {
                   blWritePDBRecord(fp, p);
                }
                fprintf(fp,"TER   \n");
+               FREELIST(pdb2, PDB);
             }
             
             if(!gNoAntigen)
             {
+               PDB *prev;
+               
                /* Write antigen chains                                  */
+#ifdef OLD
                for(i=0; i<d->nAntigenChains; i++)
                {
                   PDBCHAIN *chain = d->antigenChains[i];
@@ -961,7 +980,23 @@ void WriteDomains(DOMAIN *domains, char *filestem)
                   }
                   fprintf(fp,"TER   \n");
                }
-
+#endif
+               if(pdb3!=NULL)
+               {
+                  prev = pdb3;
+                  for(p=pdb3; p!=NULL; NEXT(p))
+                  {
+                     if(!CHAINMATCH(p->chain, prev->chain))
+                     {
+                        fprintf(fp,"TER   \n");
+                     }
+                     blWritePDBRecord(fp, p);
+                     prev=p;
+                  }
+                  fprintf(fp,"TER   \n");
+               }
+               
+               
                /* Write any HET chains                                  */
 
                /* Clear flags to say a residue has been written         */
@@ -1319,3 +1354,88 @@ void FlagHetAntigens(DOMAIN *domains, PDBSTRUCT *pdbs)
 }
 
 
+PDB *RelabelAntibodyChain(DOMAIN *domain, char *remark950)
+{
+   PDB *p, *q;
+   PDB *pdb = NULL;
+   
+   if(domain)
+   {
+      sprintf(remark950, "REMARK 950 CHAIN %c     %c%6s\n",
+              domain->chainType, domain->chainType, domain->startRes->chain);
+
+      for(p=domain->startRes; p!=domain->stopRes; NEXT(p))
+      {
+         if(pdb==NULL)
+         {
+            INIT(pdb, PDB);
+            q=pdb;
+         }
+         else
+         {
+            ALLOCNEXT(q, PDB);
+         }
+         if(q==NULL)
+         {
+            FREELIST(pdb, PDB);
+            return(NULL);
+         }
+         
+         blCopyPDB(q, p);
+         q->chain[0] = domain->chainType;
+         q->chain[1] = '\0';
+      }
+   }
+   return(pdb);
+}
+
+   
+PDB *RelabelAntigenChains(DOMAIN *domain, char *remark950)
+{
+   PDB *p, *q;
+   PDB *pdb = NULL;
+   int i;
+   
+
+   remark950[0] = '\0';
+
+   /* Write antigen chains                                  */
+   for(i=0; i<domain->nAntigenChains; i++)
+   {
+      PDBCHAIN *chain = domain->antigenChains[i];
+      char     chainLabel[8],
+               record[MAXBUFF];
+
+      strcpy(chainLabel, chain->start->chain);
+      if(CHAINMATCH(chainLabel, "L") || CHAINMATCH(chainLabel, "H"))
+      {
+         LOWER(chainLabel);
+      }
+
+      sprintf(record, "REMARK 950 CHAIN A%6s%6s\n",
+              chainLabel, chain->start->chain);
+      strcat(remark950, record);
+
+      for(p=chain->start; p!=chain->stop; NEXT(p))
+      {
+         if(pdb==NULL)
+         {
+            INIT(pdb, PDB);
+            q=pdb;
+         }
+         else
+         {
+            ALLOCNEXT(q, PDB);
+         }
+         if(q==NULL)
+         {
+            FREELIST(pdb, PDB);
+            return(NULL);
+         }
+         
+         blCopyPDB(q, p);
+         strcpy(q->chain, chainLabel);
+      }
+   }
+   return(pdb);
+}

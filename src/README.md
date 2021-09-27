@@ -9,3 +9,9 @@ correct offsets into the PDB linked list (assumed to be the same as
 the sequence data)
 
 
+5jor - good example where chains B/C are indicated as interacting with
+chain L as an antigen - it really is just touching the edge and
+shouldn't be listed as an antigen
+
+
+pdbabnum needs to take a flag to stop it changing the chain label
