@@ -8,7 +8,7 @@ my $outFile = shift(@ARGV);
 my $header = `grep REMARK $inFile`;
 my $lightChain = `pdbgetchain L $inFile | egrep '^(ATOM|HETATM)'`;
 my $heavyChain = `pdbgetchain H $inFile | egrep '^(ATOM|HETATM)'`;
-my $antigen    = `egrep '^(ATOM|HETATM)' pdb7lde_0.pdb | grep -v ' L ' | grep -v ' H '`;
+my $antigen    = `egrep '^(ATOM|HETATM)' $inFile | grep -v ' L ' | grep -v ' H '`;
 
 my $fileLH  = "/var/tmp/numberpdb_LH_$$"  . '_' . time();
 my $fileNum = "/var/tmp/numberpdb_Num_$$" . '_' . time();
