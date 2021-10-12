@@ -24,7 +24,7 @@ else
     die "Can't write $fileLH";
 }
 
-`pdbabnum $fileLH | egrep -v '^(MASTER|END)' > $fileNum`;
+`pdbabnum -c $fileLH | egrep -v '^(MASTER|END)' > $fileNum`;
 WriteToFile($outTemp, $header, 0);
 `cat $fileNum >> $outTemp`;
 WriteToFile($outTemp, $antigen, 1);
