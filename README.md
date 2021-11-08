@@ -3,6 +3,19 @@
 
 Code to take an antibody PDB file and split it into separate Fvs
 
+## Known issues
+
+1. The code needs to retain the PDB header for downstream steps
+2. Code needs to apply symmetry operators (e.g. 1b0w, 2rhe)
+   - decided to do this first with pdbsymm
+3. Some truncated sequences won't score highly enough to be flagged
+   as antibodies - just score over the aligned region.
+4. Heavy chain only not being done properly (at least in header)
+   e.g. 1t2j_0, 1shm_1
+5. Bence-Jones dimers are labelling both chains as L - should be L
+   and l e.g. 1rei
+   
+
 ## Algorithm
 
 1. Read the PDB file and split into chains

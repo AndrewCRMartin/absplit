@@ -4,7 +4,7 @@
    Program:    absplit
    \file       absplit.c
    
-   \version    V0.1
+   \version    V1.0
    \date       17.09.21   
    \brief      Split an antibody PDB file into Fvs with antigens
    
@@ -66,8 +66,8 @@
 /************************************************************************/
 /* Defines and macros
 */
-#define PROGNAME        "absplit"
-#define VERSION         0.1
+#define PROGNAME        "abYsplit"
+#define VERSION         "V1.0"
 #define MAXBUFF         240
 #define HUGEBUFF        10000
 #define MAXSEQ          10000
@@ -78,28 +78,34 @@
 #define MAXINTERFACE    20
 #define MAXCDRRES       160
 #define MAXRESID        16
-#define COFGDISTCUTSQ   1225.0 /* 35^2 - used to find possible VH/VL pairs */
-#define INTDISTCUTSQ    900.0  /* 30^2 - used to find VH/VL interface contact */
-#define CONTACTDISTSQ   36.0   /* 6^2  - used to find antigen contacts */
+#define COFGDISTCUTSQ   1225.0 /* 35^2 - for possible VH/VL pairs       */
+#define INTDISTCUTSQ    400.0  /* 20^2 - for VH/VL interface contact    */
+#define CONTACTDISTSQ   36.0   /* 6^2  - for antigen contacts           */
 #define MINAGCONTACTS   14     /* Tweaked with CONTACTDISTSQ to get Ag for
-                                  6o8d but not too much for 1dee */
+                                  6o8d but not too much for 1dee        */
 #define MAXANTIGEN      16
 #define MAXCHAINS       80
 #define MAXCHAINLABEL   blMAXCHAINLABEL
+#define MAXHETANTIGEN   160
 #define CHAINTYPE_ATOM  (APTR)1
 #define CHAINTYPE_HET   (APTR)2
+#define RES_WRITTEN_NO  (APTR)0
+#define RES_WRITTEN_YES (APTR)1
 
 typedef struct _domain
 {
    int   domainNumber,
          startSeqRes,
          lastSeqRes,
+         interface[MAXINTERFACE],
          nInterface,
          nAntigenChains,
-         interface[MAXINTERFACE],
+         nHetAntigen,
          nCDRRes,
          CDRRes[MAXCDRRES];
    char  domSeq[MAXSEQ],
+         newAbChainLabel[8],
+         newAgChainLabels[MAXANTIGEN][8],
          chainType;
    PDB   *startRes,
          *lastRes,
@@ -109,19 +115,20 @@ typedef struct _domain
    REAL  pairIntDistSq,
          pairCofGDistSq;
    BOOL  used;
-   
-   PDBCHAIN *chain,
-            *antigenChains[MAXANTIGEN];
+   PDBRESIDUE *hetAntigen[MAXHETANTIGEN];
+   PDBCHAIN   *chain,
+              *antigenChains[MAXANTIGEN];
    struct _domain *pairedDomain;
    struct _domain *next;
-}
-DOMAIN;
+}  DOMAIN;
 
 /************************************************************************/
 /* Globals
 */
-BOOL gVerbose = TRUE;
+BOOL gVerbose   = FALSE;
+BOOL gQuiet     = FALSE;
 BOOL gNoAntigen = FALSE;
+
 
 /************************************************************************/
 /* Prototypes
@@ -132,23 +139,29 @@ BOOL ProcessFile(WHOLEPDB *wpdb, char *infile, FILE *dataFp);
 DOMAIN *FindVHVLDomains(WHOLEPDB *wpdb, PDBCHAIN *chain, FILE *dataFp, DOMAIN *domains);
 void GetSequenceForChain(PDBCHAIN *chain, char *sequence);
 void ExePathName(char *str, BOOL pathonly);
-BOOL CheckAndMask(char *sequence, FILE *dataFp, PDBCHAIN *chain, DOMAIN **pDomains);
+BOOL CheckAndMask(char *sequence, FILE *dataFp, PDBCHAIN *chain,
+                  DOMAIN **pDomains);
 FILE *OpenSequenceDataFile(void);
 REAL CompareSeqs(char *theSeq, char *seq, char *align1, char *align2);
-void MaskAndAssignDomain(char *seq, PDBCHAIN *chain, char *bestMatch, char *aln1, char *aln2, DOMAIN **pDomains);
+void MaskAndAssignDomain(char *seq, PDBCHAIN *chain, char *bestMatch,
+                         char *aln1, char *aln2, DOMAIN **pDomains);
 void SetChainType(DOMAIN *domain, char *header);
 void SetIFResidues(DOMAIN *domain, char *header);
 void SetCDRResidues(DOMAIN *domain, char *header);
 void PrintDomains(DOMAIN *domains);
 void SetDomainBoundaries(DOMAIN *domain);
 void PairDomains(DOMAIN *domains);
-void WriteDomains(DOMAIN *domains, char *filestem);
-void FlagAntigens(DOMAIN *domains, PDBSTRUCT *pdbs);
-void CheckAntigenContacts(DOMAIN *domain, PDBSTRUCT *pdbs);
+void WriteDomains(WHOLEPDB *wpdb, DOMAIN *domains, char *filestem);
+BOOL FlagAntigens(DOMAIN *domains, PDBSTRUCT *pdbs);
+BOOL CheckAntigenContacts(DOMAIN *domain, PDBSTRUCT *pdbs);
 void SetChainTypes(PDBCHAIN *chains);
 BOOL inIntArray(int value, int *array, int arrayLen);
-BOOL regionsMakeContact(PDB *start1, PDB *stop1, PDB *start2, PDB *stop2);
 void GetSequenceForChainSeqres(WHOLEPDB *wpdb, PDBCHAIN *chain, char *sequence);
+BOOL RegionsMakeContact(PDB *start1, PDB *stop1, PDB *start2, PDB *stop2);
+void FlagHetAntigens(DOMAIN *domains, PDBSTRUCT *pdbs);
+PDB *RelabelAntibodyChain(DOMAIN *domain, char *remark950);
+PDB *RelabelAntigenChains(DOMAIN *domain, char *remark950);
+void WriteSeqres(FILE *fp, WHOLEPDB *wpdb, DOMAIN *d);
 
 
 /************************************************************************/
@@ -173,13 +186,14 @@ datafile was not installed\n", PROGNAME);
                exit(1);
             }
             
-
+            /* Read the mutation matrix                                 */
             blReadMDM(SCOREMATRIX);
             
+            /* Do the real work of processing this file                 */
             if(!ProcessFile(wpdb, infile, dataFp))
             {
-               fprintf(stderr,"Error (%s): Unable to split PDB into chains\n",
-                       PROGNAME);
+               fprintf(stderr,"Error (%s): Unable to split PDB into \
+chains\n", PROGNAME);
                exit(1);
             }
             
@@ -187,8 +201,8 @@ datafile was not installed\n", PROGNAME);
          }
          else
          {
-            fprintf(stderr,"Error (%s): Nothing read from input file (%s)\n",
-                    PROGNAME, infile);
+            fprintf(stderr,"Error (%s): Nothing read from input file \
+(%s)\n", PROGNAME, infile);
             exit(1);
          }
 
@@ -214,7 +228,6 @@ datafile was not installed\n", PROGNAME);
 /*>BOOL ParseCmdLine(int argc, char **argv, char *infile)
    ----------------------------------------------------------------------
 *//**
-
    \param[in]      argc        Argument count
    \param[in]      **argv      Argument array
    \param[out]     *infile     Input filename (or blank string)
@@ -239,9 +252,11 @@ BOOL ParseCmdLine(int argc, char **argv, char *infile)
          {
          case 'v':
             gVerbose = TRUE;
+            gQuiet   = FALSE;
             break;
          case 'q':
             gVerbose = FALSE;
+            gQuiet   = TRUE;
             break;
          case 'n':
             gNoAntigen = TRUE;
@@ -275,8 +290,23 @@ BOOL ParseCmdLine(int argc, char **argv, char *infile)
 /************************************************************************/
 void UsageDie(void)
 {
+   printf("%s %s (c) UCL, Prof. Andrew C.R. Martin\n", PROGNAME, VERSION);
+
+   printf("\nUsage: abysplit [-v][-q][-n] file.pdb       \n");
+   printf("           -v Verbose\n");
+   printf("           -q Quiet\n");
+   printf("           -n Do not include the antigen in the output\n");
+   printf("\nTakes a PDB file containing one or more antibodies and \
+splits it into\n");
+   printf("separate antibody files, retaining the antigen in each. \
+Handles both\n");
+   printf("ATOM (protein) antigens and HETATM (hapten) antigens. Deals \
+with scFvs\n");
+   printf("and other complex non-standard structures.\n\n");
+
    exit(1);
 }
+
 
 /************************************************************************/
 void GetFilestem(char *infile, char *filestem)
@@ -292,12 +322,12 @@ void GetFilestem(char *infile, char *filestem)
    }
    else
    {
-      int  length;
-      length = stop-start;
+      int length = stop-start;
       strncpy(filestem, start, (int)length);
       filestem[(int)length] = '\0';
    }
 }
+
 
 /************************************************************************/
 BOOL ProcessFile(WHOLEPDB *wpdb, char *infile, FILE *dataFp)
@@ -319,7 +349,6 @@ BOOL ProcessFile(WHOLEPDB *wpdb, char *infile, FILE *dataFp)
          printf("Ptr: %ld Type: %s\n", (ULONG)chain->start,
                 chain->start->record_type);
 #endif
-         
          if(chain->extras == CHAINTYPE_ATOM)
          {
             printf("\n***Handling chain: %s\n", chain->chain);
@@ -328,9 +357,12 @@ BOOL ProcessFile(WHOLEPDB *wpdb, char *infile, FILE *dataFp)
       }
 
       PairDomains(domains);
-      FlagAntigens(domains, pdbs);
+      if(!FlagAntigens(domains, pdbs))
+      {
+         FlagHetAntigens(domains, pdbs);
+      }
       PrintDomains(domains);
-      WriteDomains(domains, filestem);
+      WriteDomains(wpdb, domains, filestem);
       
       FREELIST(domains, DOMAIN);
       blFreePDBStructure(pdbs);
@@ -344,15 +376,16 @@ BOOL ProcessFile(WHOLEPDB *wpdb, char *infile, FILE *dataFp)
 }
 
 
+/************************************************************************/
 void GetSequenceForChain(PDBCHAIN *chain, char *sequence)
 {
-   int i=0;
+   int        i=0;
    PDBRESIDUE *r;
+
    if(chain->extras == CHAINTYPE_ATOM)
    {
       for(r=chain->residues; r!=NULL; NEXT(r))
       {
-/*      if(!strncmp(r->start->record_type, "ATOM  ", 6)) */
          {
             sequence[i++] = blThrone(r->resnam);
          }
@@ -362,14 +395,18 @@ void GetSequenceForChain(PDBCHAIN *chain, char *sequence)
    sequence[i] = '\0';
 }
 
-/* From https://www.linuxquestions.org/questions/showthread.php?threadid=273614
- */
+/************************************************************************/
+/* 
+   From 
+   https://www.linuxquestions.org/questions/showthread.php?threadid=273614
+*/
 void ExePathName(char *str, BOOL pathonly)
 {
   FILE *fp;
-  char buf[PATH_MAX+100], *p;
+  char buf[PATH_MAX+100],
+       *p;
 
-  *str = '\0';
+  *str    = '\0';
   if(!(fp = fopen("/proc/self/maps", "r")))
     return;
 
@@ -385,11 +422,13 @@ void ExePathName(char *str, BOOL pathonly)
   if(pathonly)
   {
      p=strrchr(str, '/');
-     if(p!=NULL) *p='\0';
+     if(p!=NULL)
+        *p='\0';
   }
 }
 
 
+/************************************************************************/
 FILE *OpenSequenceDataFile(void)
 {
    char pathname[PATH_MAX];
@@ -422,24 +461,25 @@ REAL CompareSeqs(char *theSeq, char *seq, char *align1, char *align2)
 
    bestPossibleScore = blAffinealign(seq, strlen(seq),
                                      seq, strlen(seq),
-                                     FALSE,          /* verbose  */
-                                     FALSE,          /* identity */
-                                     GAPOPENPENALTY, /* penalty  */
-                                     GAPEXTPENALTY,  /* extension  */
+                                     FALSE,          /* verbose         */
+                                     FALSE,          /* identity        */
+                                     GAPOPENPENALTY, /* penalty         */
+                                     GAPEXTPENALTY,  /* extension       */
                                      align1,
                                      align2,
                                      &alignLen);
 
-   score = blAffinealign(theSeq, strlen(theSeq),
-                         seq, strlen(seq),
-                         FALSE,          /* verbose  */
-                         FALSE,          /* identity */
-                         GAPOPENPENALTY, /* penalty  */
-                         GAPEXTPENALTY,  /* extension  */
-                         align1,
-                         align2,
-                         &alignLen);
-   align1[alignLen] = align2[alignLen] = '\0';
+   score             = blAffinealign(theSeq, strlen(theSeq),
+                                     seq, strlen(seq),
+                                     FALSE,          /* verbose         */
+                                     FALSE,          /* identity        */
+                                     GAPOPENPENALTY, /* penalty         */
+                                     GAPEXTPENALTY,  /* extension       */
+                                     align1,
+                                     align2,
+                                     &alignLen);
+
+   align1[alignLen]  = align2[alignLen] = '\0';
 
 #ifdef DEBUG   
    fprintf(stderr, "\n>>>%s\n", align1);
@@ -450,6 +490,7 @@ REAL CompareSeqs(char *theSeq, char *seq, char *align1, char *align2)
 }
 
 
+/************************************************************************/
 DOMAIN *FindVHVLDomains(WHOLEPDB *wpdb, PDBCHAIN *chain, FILE *dataFp, DOMAIN *domains)
 {
    char sequence[MAXSEQ];
@@ -464,11 +505,13 @@ DOMAIN *FindVHVLDomains(WHOLEPDB *wpdb, PDBCHAIN *chain, FILE *dataFp, DOMAIN *d
    {
       if(!CheckAndMask(sequence, dataFp, chain, &domains)) break;
    }
+
    return(domains);
-   
 }
 
-BOOL CheckAndMask(char *sequence, FILE *dbFp, PDBCHAIN *chain, DOMAIN **pDomains)
+/************************************************************************/
+BOOL CheckAndMask(char *sequence, FILE *dbFp, PDBCHAIN *chain,
+                  DOMAIN **pDomains)
 {
    char        bestMatch[MAXBUFF+1];
    REAL        maxScore = 0.0;
@@ -476,18 +519,17 @@ BOOL CheckAndMask(char *sequence, FILE *dbFp, PDBCHAIN *chain, DOMAIN **pDomains
                align2[HUGEBUFF+1];
    static char bestAlign1[HUGEBUFF+1],
                bestAlign2[HUGEBUFF+1];
-   char header[MAXBUFF+1];
-   char *seq = NULL;
-   BOOL found = FALSE;
+   char        header[MAXBUFF+1];
+   char        *seq = NULL;
+   BOOL        found = FALSE;
    rewind(dbFp);
 
-   /* Find the best match in the reference sequences */
+   /* Find the best match in the reference sequences                    */
    while((seq = blReadFASTA(dbFp, header, MAXBUFF))!=NULL)
    {
       REAL score;
          
       score = CompareSeqs(sequence, seq, align1, align2);
-            
       if(score > maxScore)
       {
          maxScore = score;
@@ -497,7 +539,7 @@ BOOL CheckAndMask(char *sequence, FILE *dbFp, PDBCHAIN *chain, DOMAIN **pDomains
       }
    }
 
-   /* If we found an antibody sequence               */
+   /* If we found an antibody sequence                                  */
    if(maxScore > ABTHRESHOLD)
    {
       if(gVerbose)
@@ -508,13 +550,16 @@ BOOL CheckAndMask(char *sequence, FILE *dbFp, PDBCHAIN *chain, DOMAIN **pDomains
          fprintf(stderr, "REF: %s\n\n", bestAlign2);
       }
       
-      MaskAndAssignDomain(sequence, chain, bestMatch, bestAlign1, bestAlign2, pDomains);
+      MaskAndAssignDomain(sequence, chain, bestMatch,
+                          bestAlign1, bestAlign2, pDomains);
       found = TRUE;
    }
    
    return(found);
 }
 
+
+/************************************************************************/
 void SetChainType(DOMAIN *domain, char *header)
 {
    char *ptr;
@@ -526,6 +571,8 @@ void SetChainType(DOMAIN *domain, char *header)
    }
 }
 
+
+/************************************************************************/
 void SetIFResidues(DOMAIN *domain, char *header)
 {
    char *ptr1, *ptr2, *bar;
@@ -546,7 +593,7 @@ void SetIFResidues(DOMAIN *domain, char *header)
 
          *ptr2 = '\0';
          sscanf(ptr1, "%d", &(domain->interface[domain->nInterface++]));
-         ptr1=ptr2+1;
+         ptr1  = ptr2+1;
       }
       
       if((ptr2 = strchr(ptr1, ']'))!=NULL)
@@ -557,6 +604,7 @@ void SetIFResidues(DOMAIN *domain, char *header)
    }
 }
 
+/************************************************************************/
 void SetCDRResidues(DOMAIN *domain, char *header)
 {
    char *ptr1, *ptr2;
@@ -566,6 +614,7 @@ void SetCDRResidues(DOMAIN *domain, char *header)
 
    strncpy(headerCopy, header, MAXBUFF);
    headerCopy[MAXBUFF] = '\0';
+
    if((ptr1 = strchr(headerCopy, '['))!=NULL)
    {
       ptr1++;
@@ -586,10 +635,11 @@ void SetCDRResidues(DOMAIN *domain, char *header)
             sscanf(ptr1, "%d", &(domain->CDRRes[domain->nCDRRes++]));
          }
       }
-      
    }
 }
 
+
+/************************************************************************/
 void PrintDomains(DOMAIN *domains)
 {
    DOMAIN *d;
@@ -598,13 +648,16 @@ void PrintDomains(DOMAIN *domains)
    
    for(d=domains; d!=NULL; NEXT(d))
    {
-      printf("DomNum: %d Chain: %s Start: %d Stop: %d Type: %c PairsWith: %d\n",
+      printf("Domain: %d Chain: %s Start: %d Stop: %d Type: %c \
+PairsWithDomain: %d (Chain: %s)\n",
              d->domainNumber,
              d->chain->chain,
              d->startSeqRes,
              d->lastSeqRes,
              d->chainType,
-             (d->pairedDomain==NULL)?0:d->pairedDomain->domainNumber);
+             (d->pairedDomain==NULL)?0:d->pairedDomain->domainNumber,
+             (d->pairedDomain==NULL)?"none":d->pairedDomain->chain->chain
+         );
       printf("%s\n", d->domSeq);
       if(d->nAntigenChains)
       {
@@ -633,17 +686,16 @@ void PrintDomains(DOMAIN *domains)
          }
          printf("\n\n");
       }
-#endif
-/*
       blWritePDBRecord(stdout,d->startRes);
       blWritePDBRecord(stdout,d->lastRes);
-*/
-      
+#endif
    }
 }
 
-void MaskAndAssignDomain(char *seq, PDBCHAIN *chain, char *header, char *seqAln,
-                         char *domAln, DOMAIN **pDomains)
+
+/************************************************************************/
+void MaskAndAssignDomain(char *seq, PDBCHAIN *chain, char *header,
+                         char *seqAln, char *domAln, DOMAIN **pDomains)
 {
    int    seqPos    = 0,
           alnPos    = 0,
@@ -665,35 +717,41 @@ void MaskAndAssignDomain(char *seq, PDBCHAIN *chain, char *header, char *seqAln,
    }
    if(d==NULL)
    {
-      fprintf(stderr,"Error (%s): No memory for list of domains\n", PROGNAME);
+      fprintf(stderr,"Error (%s): No memory for list of domains\n",
+              PROGNAME);
       exit(1);
    }
-   d->startSeqRes = -1;
-   d->lastSeqRes  = -1;
-   d->nInterface  = 0;
-   d->chain       = chain;
-   d->pairIntDistSq = 100000000.0;
+   d->startSeqRes    = -1;
+   d->lastSeqRes     = -1;
+   d->chain          = chain;
+   d->pairIntDistSq  = 100000000.0;
    d->pairCofGDistSq = 100000000.0;
-   d->domainNumber = (prevD==NULL)?1:prevD->domainNumber+1;
-   d->pairedDomain = NULL;
+   d->domainNumber   = (prevD==NULL)?1:prevD->domainNumber+1;
+   d->pairedDomain   = NULL;
+   d->nCDRRes        = 0;
+   d->nInterface     = 0;
+   d->nHetAntigen    = 0;
+   d->nAntigenChains = 0;
    
-   SetChainType(d, header);
-   SetIFResidues(d, header);
+   SetChainType(d,   header);
+   SetIFResidues(d,  header);
    SetCDRResidues(d, header);
    
    for(seqPos=0, alnPos=0; seqPos<strlen(seqAln); seqPos++)
    {
-      while(seqAln[alnPos] == '-')  /* Skip insertions */
+      while(seqAln[alnPos] == '-')  /* Skip insertions                  */
       {
          alnPos++;
       }
+      
       if((domAln[alnPos] != '-') &&
          (domAln[alnPos] != '\0'))
       {
          if(d->startSeqRes == (-1))
             d->startSeqRes = seqPos;
 #ifdef DEBUG
-         printf("Seqpos %d SeqRes %c DomRes %c\n", seqPos, seqAln[alnPos], domAln[alnPos]);
+         printf("Seqpos %d SeqRes %c DomRes %c\n",
+                seqPos, seqAln[alnPos], domAln[alnPos]);
 #endif
          d->lastSeqRes = seqPos;
          d->domSeq[domSeqPos++] = seq[seqPos];
@@ -706,6 +764,7 @@ void MaskAndAssignDomain(char *seq, PDBCHAIN *chain, char *header, char *seqAln,
    SetDomainBoundaries(d);
 }
 
+/************************************************************************/
 void SetDomainBoundaries(DOMAIN *domain)
 {
    int resnum = 0,
@@ -736,7 +795,7 @@ void SetDomainBoundaries(DOMAIN *domain)
 
    /* Find the CofG of the domain                                       */
    domain->CofG.x = domain->CofG.y = domain->CofG.z = 0.0;
-   nCoor  = 0;
+   nCoor          = 0;
    
    for(p=domain->startRes; p!=domain->stopRes; NEXT(p))
    {
@@ -748,6 +807,7 @@ void SetDomainBoundaries(DOMAIN *domain)
          nCoor++;
       }
    }
+   
    domain->CofG.x /= nCoor;
    domain->CofG.y /= nCoor;
    domain->CofG.z /= nCoor;
@@ -760,6 +820,7 @@ void SetDomainBoundaries(DOMAIN *domain)
    for(p=domain->startRes; p!=domain->stopRes; p=nextRes)
    {
       PDB *q;
+      
       nextRes = blFindNextResidue(p);
       for(q=p; q!=nextRes; NEXT(q))
       {
@@ -791,6 +852,8 @@ void SetDomainBoundaries(DOMAIN *domain)
    domain->IntCofG.z /= nCoor;
 }
 
+
+/************************************************************************/
 void PairDomains(DOMAIN *domains)
 {
    DOMAIN *d1, *d2;
@@ -799,67 +862,66 @@ void PairDomains(DOMAIN *domains)
    {
       for(d2=domains; d2!=NULL; NEXT(d2))
       {
-         REAL distCofG;
+         REAL distCofGSq;
          VEC3F *c1, *c2;
          c1 = &(d1->CofG);
          c2 = &(d2->CofG);
 
-         distCofG = DISTSQ(c1, c2);
-#ifdef DEBUG
-         printf("CofG Distance: %.3f\n", sqrt(distCofG));
-#endif
+         distCofGSq = DISTSQ(c1, c2);
          
-         if((distCofG < COFGDISTCUTSQ) && (distCofG > 1.0))
+         if((distCofGSq < COFGDISTCUTSQ) && (distCofGSq > 1.0))
          {
-            REAL distInt;
+            REAL distIntSq;
             
             c1 = &(d1->IntCofG);
             c2 = &(d2->IntCofG);
 
-            distInt = DISTSQ(c1, c2);
-            if(distInt < INTDISTCUTSQ)
+            distIntSq = DISTSQ(c1, c2);
+            if(distIntSq < INTDISTCUTSQ)
             {
-               if(distInt < distCofG)
+               if(distIntSq < distCofGSq)
                {
-                  if((distCofG < d1->pairCofGDistSq) ||
-                     (distInt  < d1->pairIntDistSq)  ||
-                     (distCofG < d2->pairCofGDistSq) ||
-                     (distInt  < d2->pairIntDistSq))
-                     
+                  if(((distCofGSq < d1->pairCofGDistSq) ||
+                      (distIntSq  < d1->pairIntDistSq)) &&
+                     ((distCofGSq < d2->pairCofGDistSq) ||
+                      (distIntSq  < d2->pairIntDistSq)))
                   {
-                     d1->pairCofGDistSq = distCofG;
-                     d1->pairIntDistSq  = distInt;
-                     d2->pairCofGDistSq = distCofG;
-                     d2->pairIntDistSq  = distInt;
+                     d1->pairCofGDistSq = distCofGSq;
+                     d1->pairIntDistSq  = distIntSq;
+                     d2->pairCofGDistSq = distCofGSq;
+                     d2->pairIntDistSq  = distIntSq;
                      d1->pairedDomain = d2;
                      d2->pairedDomain = d1;
+#ifdef DEBUG
+                     printf("*Paired domain %d with %d\n",
+                            d1->domainNumber, d2->domainNumber);
+#endif
                   }
                }
             }
             
 #ifdef DEBUG
-            printf("Interface Distance: %.3f\n", sqrt(distInt));
+            printf("CofG Distance (domain %d to %d): %.3f\n",
+                   d1->domainNumber, d2->domainNumber, sqrt(distCofGSq));
+            printf("Interface Distance (domain %d to %d): %.3f\n\n",
+                   d1->domainNumber, d2->domainNumber, sqrt(distIntSq));
 #endif
             
          }
-         
-         
       }
 #ifdef DEBUG
       printf("\n");
 #endif      
    }
-   
 }
 
 
-
-void WriteDomains(DOMAIN *domains, char *filestem)
+/************************************************************************/
+void WriteDomains(WHOLEPDB *wpdb, DOMAIN *domains, char *filestem)
 {
-   DOMAIN *d, *pd;
+   DOMAIN     *d, *pd;
    static int domCount = 0;
-   int    i;
-
+   int        i;
    
    for(d=domains; d!=NULL; NEXT(d))
       d->used = FALSE;
@@ -870,33 +932,60 @@ void WriteDomains(DOMAIN *domains, char *filestem)
       {
          FILE *fp;
          char outFile[MAXBUFF+1];
+         BOOL written = FALSE;
          
          sprintf(outFile, "%s_%d.pdb", filestem, domCount++);
          outFile[MAXBUFF] = '\0';
 
          if((fp = fopen(outFile, "w"))!=NULL)
          {
-            PDB *p;
+            PDB *pdb1, *pdb2, *pdb3, *p;
+            char remark950Domain[100],
+                 remark950Partner[100],
+                 remark950Antigen[MAXANTIGEN * 100];
+            
             d->used = TRUE;
-            /* Write this domain */
-            for(p=d->startRes; p!=d->stopRes; NEXT(p))
+
+            pdb1 = RelabelAntibodyChain(d,
+                                        remark950Domain);
+            pdb2 = RelabelAntibodyChain(d->pairedDomain,
+                                        remark950Partner);
+            pdb3 = RelabelAntigenChains(d,
+                                        remark950Antigen);
+
+            fprintf(fp, "REMARK 950 CHAIN-TYPE  LABEL ORIGINAL\n");
+            fprintf(fp, remark950Domain);
+            fprintf(fp, remark950Partner);
+            fprintf(fp, remark950Antigen);
+            
+            WriteSeqres(fp, wpdb, d);
+
+            /* Write this domain                                        */
+            for(p=pdb1; p!=NULL; NEXT(p))
             {
                blWritePDBRecord(fp, p);
             }
             fprintf(fp,"TER   \n");
-            /* Write partner domain */
+            FREELIST(pdb1, PDB);
+            
+            /* Write partner domain                                     */
             if((pd = d->pairedDomain) != NULL)
             {
                pd->used = TRUE;
-               for(p=pd->startRes; p!=pd->stopRes; NEXT(p))
+               for(p=pdb2; p!=NULL; NEXT(p))
                {
                   blWritePDBRecord(fp, p);
                }
                fprintf(fp,"TER   \n");
+               FREELIST(pdb2, PDB);
             }
+            
             if(!gNoAntigen)
             {
-               /* Write antigen chains */
+               PDB *prev;
+               
+               /* Write antigen chains                                  */
+#ifdef OLD
                for(i=0; i<d->nAntigenChains; i++)
                {
                   PDBCHAIN *chain = d->antigenChains[i];
@@ -906,6 +995,77 @@ void WriteDomains(DOMAIN *domains, char *filestem)
                   }
                   fprintf(fp,"TER   \n");
                }
+#endif
+               if(pdb3!=NULL)
+               {
+                  prev = pdb3;
+                  for(p=pdb3; p!=NULL; NEXT(p))
+                  {
+                     if(!CHAINMATCH(p->chain, prev->chain))
+                     {
+                        fprintf(fp,"TER   \n");
+                     }
+                     blWritePDBRecord(fp, p);
+                     prev=p;
+                  }
+                  fprintf(fp,"TER   \n");
+               }
+               
+               
+               /* Write any HET chains                                  */
+
+               /* Clear flags to say a residue has been written         */
+               for(i=0; i<d->nHetAntigen; i++)
+               {
+                  PDBRESIDUE *res = d->hetAntigen[i];
+                  res->extras = RES_WRITTEN_NO;
+               }
+               if(pd!=NULL)
+               {
+                  for(i=0; i<pd->nHetAntigen; i++)
+                  {
+                     PDBRESIDUE *res = pd->hetAntigen[i];
+                     res->extras = RES_WRITTEN_NO;
+                  }
+               }
+               
+               /* First domain                                          */
+               for(i=0; i<d->nHetAntigen; i++)
+               {
+                  PDBRESIDUE *res = d->hetAntigen[i];
+                  res->extras = RES_WRITTEN_YES;
+                  fprintf(stderr,"Writing domain %d HET residue %s\n",
+                          d->domainNumber, res->resid);
+                  for(p=res->start; p!=res->stop; NEXT(p))
+                  {
+                     blWritePDBRecord(fp, p);
+                  }
+               }
+               if(d->nHetAntigen)
+                  fprintf(fp,"TER   \n");
+
+               /* Partner domain                                        */
+               if(pd!=NULL)
+               {
+                  for(i=0; i<pd->nHetAntigen; i++)
+                  {
+                     PDBRESIDUE *res = pd->hetAntigen[i];
+                     if(res->extras == RES_WRITTEN_NO)
+                     {
+                        fprintf(stderr,
+                                "Writing domain %d HET residue %s\n",
+                                pd->domainNumber, res->resid);
+                        written = TRUE;
+                        for(p=res->start; p!=res->stop; NEXT(p))
+                        {
+                           blWritePDBRecord(fp, p);
+                        }
+                     }
+                  }
+                  if(written)
+                     fprintf(fp,"TER   \n");
+               }
+               
             }
             
             fclose(fp);
@@ -914,9 +1074,11 @@ void WriteDomains(DOMAIN *domains, char *filestem)
    }
 }
 
-void FlagAntigens(DOMAIN *domains, PDBSTRUCT *pdbs)
+/************************************************************************/
+BOOL FlagAntigens(DOMAIN *domains, PDBSTRUCT *pdbs)
 {
    DOMAIN *d;
+   BOOL   foundAntigen = FALSE;
 
    printf("\n***Looking for non-het antigens\n");
 
@@ -933,12 +1095,14 @@ void FlagAntigens(DOMAIN *domains, PDBSTRUCT *pdbs)
          if(d->pairedDomain != NULL)
             d->pairedDomain->used = TRUE;
          
-         CheckAntigenContacts(d, pdbs);
+         foundAntigen |= CheckAntigenContacts(d, pdbs);
       }
    }
+   return(foundAntigen);
 }
 
 
+/************************************************************************/
 void SetChainTypes(PDBCHAIN *chains)
 {
    PDBCHAIN *c;
@@ -958,7 +1122,9 @@ void SetChainTypes(PDBCHAIN *chains)
    }
 }
 
-BOOL inIntArray(int value, int *array, int arrayLen)
+
+/************************************************************************/
+BOOL InIntArray(int value, int *array, int arrayLen)
 {
    int i;
 
@@ -971,7 +1137,9 @@ BOOL inIntArray(int value, int *array, int arrayLen)
    return(FALSE);
 }
 
-BOOL regionsMakeContact(PDB *start1, PDB *stop1, PDB *start2, PDB *stop2)
+
+/************************************************************************/
+BOOL RegionsMakeContact(PDB *start1, PDB *stop1, PDB *start2, PDB *stop2)
 {
    PDB *p, *q;
    
@@ -996,19 +1164,22 @@ BOOL regionsMakeContact(PDB *start1, PDB *stop1, PDB *start2, PDB *stop2)
    return(FALSE);
 }
 
-void CheckAntigenContacts(DOMAIN *domain, PDBSTRUCT *pdbs)
-{
-   PDB      *p, *q, *nextResP, *nextResQ;
-   PDBCHAIN *chain;
-   int      nContacts = 0;
-   DOMAIN   *pairedDomain = domain->pairedDomain;
 
+/************************************************************************/
+BOOL CheckAntigenContacts(DOMAIN *domain, PDBSTRUCT *pdbs)
+{
+   PDB      *p, *q,
+            *nextResP, *nextResQ;
+   PDBCHAIN *chain;
+   int      nContacts     = 0;
+   DOMAIN   *pairedDomain = domain->pairedDomain;
+   BOOL     foundAntigen  = FALSE;
    
-   domain->nAntigenChains       = 0;
+   domain->nAntigenChains = 0;
    if(pairedDomain != NULL)
       pairedDomain->nAntigenChains = 0;
 
-   /* Go through each of the ATOM chains */
+   /* Go through each of the ATOM chains                                */
    for(chain=pdbs->chains; chain!=NULL; NEXT(chain))
    {
       if(chain->extras == CHAINTYPE_ATOM)
@@ -1025,32 +1196,38 @@ void CheckAntigenContacts(DOMAIN *domain, PDBSTRUCT *pdbs)
 
 #ifdef DEBUG
             printf("Checking domain %d (chain %s) against chain %s\n",
-                   domain->domainNumber, domain->chain->chain, chain->chain);
+                   domain->domainNumber, domain->chain->chain,
+                   chain->chain);
 #endif
             
-            /* Check this domain for contacts a residue at a time */
+            /* Check this domain for contacts a residue at a time       */
             for(p=domain->startRes; p!=domain->stopRes; p=nextResP)
             {
                nextResP = blFindNextResidue(p);
 
-               /* If this is a CDR residue */
-               if(inIntArray(resnum, domain->CDRRes, domain->nCDRRes))
+               /* If this is a CDR residue                              */
+               if(InIntArray(resnum, domain->CDRRes, domain->nCDRRes))
                {
                   for(q=chain->start; q!=chain->stop; q=nextResQ)
                   {
                      nextResQ = blFindNextResidue(q);
                      
-                     if(regionsMakeContact(p, nextResP, q, nextResQ))
+                     if(RegionsMakeContact(p, nextResP, q, nextResQ))
                      {
 #ifdef DEBUG
-                        printf("Domain %d (chain %s) makes %d contacts with chain %s\n",
-                               domain->domainNumber, domain->chain->chain, nContacts, chain->chain);
+                        printf("Domain %d (chain %s) makes %d contacts \
+with chain %s\n",
+                               domain->domainNumber,
+                               domain->chain->chain,
+                               nContacts, chain->chain);
 #endif                           
                         if(++nContacts >= MINAGCONTACTS)
                         {
+                           foundAntigen = TRUE;
                            if(domain->nAntigenChains < MAXANTIGEN)
                               domain->antigenChains[domain->nAntigenChains++] = chain;
-                           if((pairedDomain != NULL) && (pairedDomain->nAntigenChains < MAXANTIGEN))
+                           if((pairedDomain != NULL) &&
+                              (pairedDomain->nAntigenChains < MAXANTIGEN))
                               pairedDomain->antigenChains[pairedDomain->nAntigenChains++] = chain;
 #ifndef DEBUG
                            goto break1;
@@ -1063,37 +1240,46 @@ void CheckAntigenContacts(DOMAIN *domain, PDBSTRUCT *pdbs)
                resnum++;
             }
             
-            /* Check partner domain for contacts */
+            /* Check partner domain for contacts                        */
             if(pairedDomain != NULL)
             {
 #ifdef DEBUG
-               printf("Checking partner domain %d (chain %s) against chain %s\n",
-                      pairedDomain->domainNumber, pairedDomain->chain->chain, chain->chain);
+               printf("Checking partner domain %d (chain %s) against \
+chain %s\n",
+                      pairedDomain->domainNumber,
+                      pairedDomain->chain->chain, chain->chain);
 #endif
-               resnum    = 0;
-               for(p=pairedDomain->startRes; p!=pairedDomain->stopRes; p=nextResP)
+               resnum = 0;
+               for(p=pairedDomain->startRes;
+                   p!=pairedDomain->stopRes;
+                   p=nextResP)
                {
                   nextResP = blFindNextResidue(p);
                      
-                  if(inIntArray(resnum, pairedDomain->CDRRes, pairedDomain->nCDRRes))
+                  if(InIntArray(resnum, pairedDomain->CDRRes,
+                                pairedDomain->nCDRRes))
                   {
                      for(q=chain->start; q!=chain->stop; q=nextResQ)
                      {
                         nextResQ = blFindNextResidue(q);
                         
-                        if(regionsMakeContact(p, nextResP, q, nextResQ))
+                        if(RegionsMakeContact(p, nextResP, q, nextResQ))
                         {
 #ifdef DEBUG
-                           printf("Domain %d (chain %s) makes %d contacts with chain %s\n",
-                                  pairedDomain->domainNumber, pairedDomain->chain->chain,
+                           printf("Domain %d (chain %s) makes %d \
+contacts with chain %s\n",
+                                  pairedDomain->domainNumber,
+                                  pairedDomain->chain->chain,
                                   nContacts, chain->chain);
 #endif
 
                            if(++nContacts >= MINAGCONTACTS)
                            {
+                              foundAntigen = TRUE;
                               if(domain->nAntigenChains < MAXANTIGEN)
                                  domain->antigenChains[domain->nAntigenChains++] = chain;
-                              if((pairedDomain != NULL) && (pairedDomain->nAntigenChains < MAXANTIGEN))
+                              if((pairedDomain != NULL) &&
+                                 (pairedDomain->nAntigenChains < MAXANTIGEN))
                                  pairedDomain->antigenChains[pairedDomain->nAntigenChains++] = chain;
 #ifndef DEBUG
                               goto break1;
@@ -1110,6 +1296,8 @@ void CheckAntigenContacts(DOMAIN *domain, PDBSTRUCT *pdbs)
          }
       }
    }
+
+   return(foundAntigen);
 }
 
 void GetSequenceForChainSeqres(WHOLEPDB *wpdb, PDBCHAIN *chain, char *sequence)
@@ -1191,3 +1379,225 @@ void GetSequenceForChainSeqres(WHOLEPDB *wpdb, PDBCHAIN *chain, char *sequence)
 
    
    
+/************************************************************************/
+void FlagHetAntigens(DOMAIN *domains, PDBSTRUCT *pdbs)
+{
+   DOMAIN   *d;
+   PDBCHAIN *c;
+   
+   printf("\n***Looking for HET antigens\n");
+
+   /* Step through the chains                                           */
+   for(c=pdbs->chains; c!=NULL; NEXT(c))
+   {
+      /* If it's a HET chain                                            */
+      if(c->extras == CHAINTYPE_HET)
+      {
+         PDBRESIDUE *r;
+         /* Go through the residues in this HET chain                   */
+         for(r=c->residues; r!=NULL; NEXT(r))
+         {
+            if(!ISWATER(r)) /* If it isn't a water                      */
+            {
+               /* Go through the antibody domains                       */
+               for(d=domains; d!=NULL; NEXT(d))
+               {
+                  PDB *pc, *pd;
+                  /* Go through the atoms in this non-water HET residue */
+                  for(pc=r->start; pc!=r->stop; NEXT(pc))
+                  {
+                     /* Go through the atoms in this antibody domain    */
+                     for(pd=d->startRes; pd!=d->stopRes; NEXT(pd))
+                     {
+                        /* If this atom is close enough to the HET 
+                           residue 
+                        */
+                        if(DISTSQ(pc, pd) < CONTACTDISTSQ)
+                        {
+                           printf("HET group %s%d%s contacts Domain %d\n",
+                                  pc->chain, pc->resnum, pc->insert,
+                                  d->domainNumber);
+#ifdef DEBUG
+                           printf("%s%d%s.%s contacts %s%d%s.%s\n",
+                                  pc->chain, pc->resnum,
+                                  pc->insert, pc->atnam,
+                                  pd->chain, pd->resnum,
+                                  pd->insert, pd->atnam);
+#endif
+                           /* Flag this HET residue as making contact   */
+                           if(d->nHetAntigen < MAXHETANTIGEN)
+                           {
+                              d->hetAntigen[d->nHetAntigen++] = r;
+#ifndef DEBUG
+                              printf("Stored domain %d residue %s\n",
+                                     d->domainNumber, r->resid);
+#endif
+                           }
+                           goto lastatom;
+                        }  /* In range                                  */
+                     }  /* Step through atoms in this antibody domain   */
+                  }  /* step through atoms in the non-water HET residue */
+               lastatom:
+                  continue;
+               }  /* step through domains                               */
+            }  /* not water                                             */
+         }  /* step through residues in this HET chain                  */
+      }  /* Is a HET chain                                              */
+   }  /* Step through chains                                            */
+}
+
+
+PDB *RelabelAntibodyChain(DOMAIN *domain, char *remark950)
+{
+   PDB *p, *q;
+   PDB *pdb = NULL;
+   
+   if(domain)
+   {
+      domain->newAbChainLabel[0] = domain->chainType;
+      domain->newAbChainLabel[1] = '\0';
+      
+      sprintf(remark950, "REMARK 950 CHAIN %c     %c%6s\n",
+              domain->chainType, domain->chainType, domain->startRes->chain);
+
+      for(p=domain->startRes; p!=domain->stopRes; NEXT(p))
+      {
+         if(pdb==NULL)
+         {
+            INIT(pdb, PDB);
+            q=pdb;
+         }
+         else
+         {
+            ALLOCNEXT(q, PDB);
+         }
+         if(q==NULL)
+         {
+            FREELIST(pdb, PDB);
+            return(NULL);
+         }
+         
+         blCopyPDB(q, p);
+         q->chain[0] = domain->chainType;
+         q->chain[1] = '\0';
+      }
+   }
+   return(pdb);
+}
+
+   
+PDB *RelabelAntigenChains(DOMAIN *domain, char *remark950)
+{
+   PDB *p, *q;
+   PDB *pdb = NULL;
+   int i;
+   
+   remark950[0] = '\0';
+
+   /* Write antigen chains                                  */
+   for(i=0; i<domain->nAntigenChains; i++)
+   {
+      PDBCHAIN *chain = domain->antigenChains[i];
+      char     chainLabel[8],
+               record[MAXBUFF];
+
+      strcpy(chainLabel, chain->start->chain);
+      if(CHAINMATCH(chainLabel, "L") || CHAINMATCH(chainLabel, "H"))
+      {
+         LOWER(chainLabel);
+      }
+
+      sprintf(record, "REMARK 950 CHAIN A%6s%6s\n",
+              chainLabel, chain->start->chain);
+      strcat(remark950, record);
+      domain->newAgChainLabels[i][0] = chainLabel[0];
+      domain->newAgChainLabels[i][1] = '\0';
+
+      for(p=chain->start; p!=chain->stop; NEXT(p))
+      {
+         if(pdb==NULL)
+         {
+            INIT(pdb, PDB);
+            q=pdb;
+         }
+         else
+         {
+            ALLOCNEXT(q, PDB);
+         }
+         if(q==NULL)
+         {
+            FREELIST(pdb, PDB);
+            return(NULL);
+         }
+         
+         blCopyPDB(q, p);
+         strcpy(q->chain, chainLabel);
+      }
+   }
+   return(pdb);
+}
+
+void WriteSeqres(FILE *fp, WHOLEPDB *wpdb, DOMAIN *domain)
+{
+   STRINGLIST *s;
+   int        i;
+   char       buffer[MAXBUFF];
+
+   /* Print any MODRES records                                          */
+   /************** TODO: need to fix the chain name          ************/
+   for(s=wpdb->header; s!=NULL; NEXT(s))
+   {
+      if(!strncmp(s->string, "MODRES", 6))
+      {
+         fprintf(fp, "%s\n", s->string);
+      }
+   }
+   
+   /* Print SEQRES for this domain's chain                              */
+   for(s=wpdb->header; s!=NULL; NEXT(s))
+   {
+      if(!strncmp(s->string, "SEQRES", 6))
+      {
+         if(s->string[11] == domain->startRes->chain[0])
+         {
+            strcpy(buffer, s->string);
+            buffer[11] = domain->newAbChainLabel[0];
+            fprintf(fp, "%s", buffer);
+         }
+      }
+   }
+   
+   /* Print SEQRES for the partner domain's chain                             */
+   for(s=wpdb->header; s!=NULL; NEXT(s))
+   {
+      if(!strncmp(s->string, "SEQRES", 6))
+      {
+         if(s->string[11] == domain->pairedDomain->startRes->chain[0])
+         {
+            strcpy(buffer, s->string);
+            buffer[11] = domain->pairedDomain->newAbChainLabel[0];
+            fprintf(fp, "%s", buffer);
+         }
+      }
+   }
+   
+   /* Print SEQRES for the antigen chains                                     */
+   for(i=0; i<domain->nAntigenChains; i++)
+   {
+      PDBCHAIN *chain = domain->antigenChains[i];
+
+      for(s=wpdb->header; s!=NULL; NEXT(s))
+      {
+         if(!strncmp(s->string, "SEQRES", 6))
+         {
+            if(s->string[11] == chain->chain[0])
+            {
+               strcpy(buffer, s->string);
+               buffer[11] = domain->newAgChainLabels[i][0];
+               fprintf(fp, "%s", buffer);
+            }
+         }
+      }
+   }
+}
+
