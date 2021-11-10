@@ -1,6 +1,7 @@
 input=$1
 absplit=${HOME}/git/absplit/src/absplit
 numberabpdb=${HOME}/git/absplit/src/numberabpdb.pl
+combinefaa=${HOME}/git/absplit/src/combinefaa.pl
 
 $absplit /serv/data/pdb/pdb7mfa.ent
 
@@ -12,7 +13,10 @@ done
 
 for file in *.fix
 do
-    pdb2pir -s -c $file > `basename $file .fix`.pir
+    tmpfaa=`basename $file .fix`.tmp
+    faa=`basename $file .fix`.faa
+    pdbgetchain L,H $file | pdb2pir -s -i -c -f $file > $tmpfaa
+    $combinefaa $tmpfaa > $faa
 done
 
 for file in *.fix
@@ -24,5 +28,6 @@ done
 
 rm *.fix
 rm *.pdb
+rm *.tmp
 
 # pdbrepair -t pdb7mfa_0.num | pdbdummystrip | pdb2pir -s 
