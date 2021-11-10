@@ -3,7 +3,7 @@ absplit=${HOME}/git/absplit/src/absplit
 numberabpdb=${HOME}/git/absplit/src/numberabpdb.pl
 combinefaa=${HOME}/git/absplit/src/combinefaa.pl
 
-$absplit /serv/data/pdb/pdb7mfa.ent
+$absplit $input
 
 for file in *.pdb
 do
