@@ -167,6 +167,8 @@ void FlagHetAntigenResidues(WHOLEPDB *wpd, DOMAIN *domains,
 PDB *RelabelAntibodyChain(DOMAIN *domain, char *remark950);
 PDB *RelabelAntigenChains(DOMAIN *domain, char *remark950);
 void WriteSeqres(FILE *fp, WHOLEPDB *wpdb, DOMAIN *d);
+int CountResidueAtoms(PDBRESIDUE *res);
+
 
 
 /************************************************************************/
@@ -1417,7 +1419,8 @@ void FlagHetAntigenChains(DOMAIN *domains, PDBSTRUCT *pdbs)
          /* Go through the residues in this HET chain                   */
          for(r=c->residues; r!=NULL; NEXT(r))
          {
-            if(!ISWATER(r)) /* If it isn't a water                      */
+            /* If it isn't a water and it has more than 3 atoms         */
+            if(!ISWATER(r) && (CountResidueAtoms(r) > 3))
             {
                /* Go through the antibody domains                       */
                for(d=domains; d!=NULL; NEXT(d))
@@ -1546,12 +1549,27 @@ void FlagHetAntigenResidues(WHOLEPDB *wpdb, DOMAIN *domains,
    }  /* Step through chains                                            */
 }
 
+int CountResidueAtoms(PDBRESIDUE *res)
+{
+   PDB *p;
+   int nAtoms = 0;
+   
+   
+   /* Step through atoms in this residue                                */
+   for(p=res->start; p!=res->stop; NEXT(p))
+   {
+      nAtoms++;
+   }
+   return(nAtoms);
+}
+
 
 BOOL IsNonPeptideHet(WHOLEPDB *wpdb, PDBRESIDUE *res)
 {
    PDB *p;
-   int hasBackbone = 0;
-   BOOL isAllHet = TRUE;
+   int hasBackbone = 0,
+       nAtoms      = 0;
+   BOOL isAllHet   = TRUE;
    STRINGLIST *s;
    
    
@@ -1570,8 +1588,9 @@ BOOL IsNonPeptideHet(WHOLEPDB *wpdb, PDBRESIDUE *res)
       {
          isAllHet = FALSE;
       }
+      nAtoms++;
    }
-   if((hasBackbone >= 3) || (!isAllHet))
+   if((hasBackbone >= 3) || (!isAllHet) || (nAtoms <= 3))
       return(FALSE);
    
    /* Check it isn't just an ion                                        */
