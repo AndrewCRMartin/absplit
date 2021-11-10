@@ -15,8 +15,10 @@ for file in *.fix
 do
     tmpfaa=`basename $file .fix`.tmp
     faa=`basename $file .fix`.faa
+    id=`basename $file .fix`
+    id=`echo $id | sed 's/^pdb//'`
     pdbgetchain L,H $file | pdb2pir -s -i -c -f $file > $tmpfaa
-    $combinefaa $tmpfaa > $faa
+    $combinefaa -l=$id $tmpfaa > $faa
 done
 
 for file in *.fix
