@@ -136,7 +136,8 @@ BOOL gNoAntigen = FALSE;
 BOOL ParseCmdLine(int argc, char **argv, char *infile);
 void UsageDie(void);
 BOOL ProcessFile(WHOLEPDB *wpdb, char *infile, FILE *dataFp);
-DOMAIN *FindVHVLDomains(WHOLEPDB *wpdb, PDBCHAIN *chain, FILE *dataFp, DOMAIN *domains);
+DOMAIN *FindVHVLDomains(WHOLEPDB *wpdb, PDBCHAIN *chain, FILE *dataFp,
+                        DOMAIN *domains);
 void GetSequenceForChain(PDBCHAIN *chain, char *sequence);
 void ExePathName(char *str, BOOL pathonly);
 BOOL CheckAndMask(char *sequence, FILE *dataFp, PDBCHAIN *chain,
@@ -153,12 +154,16 @@ void SetDomainBoundaries(DOMAIN *domain);
 void PairDomains(DOMAIN *domains);
 void WriteDomains(WHOLEPDB *wpdb, DOMAIN *domains, char *filestem);
 BOOL FlagAntigens(DOMAIN *domains, PDBSTRUCT *pdbs);
+BOOL IsNonPeptideHet(WHOLEPDB *wpdb, PDBRESIDUE *res);
 BOOL CheckAntigenContacts(DOMAIN *domain, PDBSTRUCT *pdbs);
 void SetChainTypes(PDBCHAIN *chains);
 BOOL inIntArray(int value, int *array, int arrayLen);
-void GetSequenceForChainSeqres(WHOLEPDB *wpdb, PDBCHAIN *chain, char *sequence);
+void GetSequenceForChainSeqres(WHOLEPDB *wpdb, PDBCHAIN *chain,
+                               char *sequence);
 BOOL RegionsMakeContact(PDB *start1, PDB *stop1, PDB *start2, PDB *stop2);
-void FlagHetAntigens(DOMAIN *domains, PDBSTRUCT *pdbs);
+void FlagHetAntigenChains(DOMAIN *domains, PDBSTRUCT *pdbs);
+void FlagHetAntigenResidues(WHOLEPDB *wpd, DOMAIN *domains,
+                            PDBSTRUCT *pdbs);
 PDB *RelabelAntibodyChain(DOMAIN *domain, char *remark950);
 PDB *RelabelAntigenChains(DOMAIN *domain, char *remark950);
 void WriteSeqres(FILE *fp, WHOLEPDB *wpdb, DOMAIN *d);
@@ -359,7 +364,8 @@ BOOL ProcessFile(WHOLEPDB *wpdb, char *infile, FILE *dataFp)
       PairDomains(domains);
       if(!FlagAntigens(domains, pdbs))
       {
-         FlagHetAntigens(domains, pdbs);
+         FlagHetAntigenChains(domains, pdbs);
+         FlagHetAntigenResidues(wpdb, domains, pdbs);
       }
       PrintDomains(domains);
       WriteDomains(wpdb, domains, filestem);
@@ -931,10 +937,18 @@ void WriteDomains(WHOLEPDB *wpdb, DOMAIN *domains, char *filestem)
       if(!d->used)
       {
          FILE *fp;
-         char outFile[MAXBUFF+1];
+         char outFile[MAXBUFF+1],
+              complex[8];
          BOOL written = FALSE;
+
+         /* Assume not a complex                                        */
+         complex[0] = '\0';
+         if(d->nAntigenChains)
+            strcpy(complex, "P");
+         if(d->nHetAntigen)
+            strncat(complex, "H", 7-strlen(complex));
          
-         sprintf(outFile, "%s_%d.pdb", filestem, domCount++);
+         sprintf(outFile, "%s_%d%s.pdb", filestem, domCount++, complex);
          outFile[MAXBUFF] = '\0';
 
          if((fp = fopen(outFile, "w"))!=NULL)
@@ -1380,12 +1394,12 @@ void GetSequenceForChainSeqres(WHOLEPDB *wpdb, PDBCHAIN *chain, char *sequence)
    
    
 /************************************************************************/
-void FlagHetAntigens(DOMAIN *domains, PDBSTRUCT *pdbs)
+void FlagHetAntigenChains(DOMAIN *domains, PDBSTRUCT *pdbs)
 {
    DOMAIN   *d;
    PDBCHAIN *c;
    
-   printf("\n***Looking for HET antigens\n");
+   printf("\n***Looking for HET antigen chains\n");
 
    /* Step through the chains                                           */
    for(c=pdbs->chains; c!=NULL; NEXT(c))
@@ -1447,6 +1461,142 @@ void FlagHetAntigens(DOMAIN *domains, PDBSTRUCT *pdbs)
 }
 
 
+
+
+/************************************************************************/
+void FlagHetAntigenResidues(WHOLEPDB *wpdb, DOMAIN *domains,
+                            PDBSTRUCT *pdbs)
+{
+   DOMAIN   *d;
+   PDBCHAIN *c;
+   
+   printf("\n***Looking for HET antigen residues\n");
+
+   /* Step through the chains                                           */
+   for(c=pdbs->chains; c!=NULL; NEXT(c))
+   {
+      /* If it's not a HET chain                                        */
+      if(c->extras != CHAINTYPE_HET)
+      {
+         PDBRESIDUE *r;
+         /* Go through the residues in this non-HET chain               */
+         for(r=c->residues; r!=NULL; NEXT(r))
+         {
+            /* If it's a HETATM group and has no peptide backbone and 
+               isn't just an ion
+            */
+            if(IsNonPeptideHet(wpdb,r))
+            {
+               if(!ISWATER(r)) /* If it isn't a water                   */
+               {
+                  /* Go through the antibody domains                    */
+                  for(d=domains; d!=NULL; NEXT(d))
+                  {
+                     PDB *pc, *pd;
+                     /* Go through the atoms in this non-water, 
+                        non-peptide HET residue 
+                     */
+                     for(pc=r->start; pc!=r->stop; NEXT(pc))
+                     {
+                        /* Go through the atoms in this antibody domain */
+                        for(pd=d->startRes; pd!=d->stopRes; NEXT(pd))
+                        {
+                           /* If this atom is close enough to the HET 
+                              residue 
+                           */
+                           if(DISTSQ(pc, pd) < CONTACTDISTSQ)
+                           {
+                              printf("HET group %s%d%s contacts Domain \
+%d\n",
+                                     pc->chain, pc->resnum, pc->insert,
+                                     d->domainNumber);
+#ifdef DEBUG
+                              printf("%s%d%s.%s contacts %s%d%s.%s\n",
+                                     pc->chain, pc->resnum,
+                                     pc->insert, pc->atnam,
+                                     pd->chain, pd->resnum,
+                                     pd->insert, pd->atnam);
+#endif
+                              /* Flag this HET residue as making contact*/
+                              if(d->nHetAntigen < MAXHETANTIGEN)
+                              {
+                                 d->hetAntigen[d->nHetAntigen++] = r;
+#ifndef DEBUG
+                                 printf("Stored domain %d residue %s\n",
+                                        d->domainNumber, r->resid);
+#endif
+                              }
+                              goto lastatom;
+                           }  /* In range                               */
+                        }  /* Step through atoms in this antibody domain*/
+                     }  /* step through atoms in the non-water HET res  */
+                  lastatom:
+                     continue;
+                  }  /* step through domains                            */
+               }  /* not water                                          */
+            }  /* Is a non-peptide HET                                  */
+         }  /* step through residues in this non-HET chain              */
+      }  /* Is a non-HET chain                                          */
+   }  /* Step through chains                                            */
+}
+
+
+BOOL IsNonPeptideHet(WHOLEPDB *wpdb, PDBRESIDUE *res)
+{
+   PDB *p;
+   int hasBackbone = 0;
+   BOOL isAllHet = TRUE;
+   STRINGLIST *s;
+   
+   
+   /* Step through atoms in this residue                                */
+   for(p=res->start; p!=res->stop; NEXT(p))
+   {
+      if(!strncmp(p->record_type, "HETATM", 6))
+      {
+         if(!strncmp(p->atnam, "N   ", 4) ||
+            !strncmp(p->atnam, "CA  ", 4) ||
+            !strncmp(p->atnam, "C   ", 4) ||
+            !strncmp(p->atnam, "O   ", 4))
+            hasBackbone++;
+      }
+      else
+      {
+         isAllHet = FALSE;
+      }
+   }
+   if((hasBackbone >= 3) || (!isAllHet))
+      return(FALSE);
+   
+   /* Check it isn't just an ion                                        */
+   for(s=wpdb->header; s!=NULL; NEXT(s))
+   {
+      /* Find HETNAM records in the header                              */
+      if(!strncmp(s->string, "HETNAM", 6))
+      {
+         char hetnam[8], *chp;
+
+         /* Grab this HETNAM record residue name                        */
+         strncpy(hetnam, s->string+11, 3);
+         hetnam[4] = '\0';
+         KILLLEADSPACES(chp, hetnam);
+
+         /* If it matches the residue in question                       */
+         if(!strncmp(chp, res->start->resnam, 3))
+         {
+            /* If the record contains the word ' ION' it's an ion       */
+            if(strstr(s->string, " ION"))
+               return(FALSE);
+         }
+      }
+   }
+
+   return(TRUE);
+   
+}
+
+
+
 PDB *RelabelAntibodyChain(DOMAIN *domain, char *remark950)
 {
    PDB *p, *q;
@@ -1494,7 +1644,7 @@ PDB *RelabelAntigenChains(DOMAIN *domain, char *remark950)
    
    remark950[0] = '\0';
 
-   /* Write antigen chains                                  */
+   /* Write antigen chains                                              */
    for(i=0; i<domain->nAntigenChains; i++)
    {
       PDBCHAIN *chain = domain->antigenChains[i];
