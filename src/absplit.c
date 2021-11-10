@@ -779,10 +779,16 @@ void SetDomainBoundaries(DOMAIN *domain)
    PDB *p,
        *nextRes;
 
+   domain->startRes = NULL;
+   domain->stopRes  = NULL;
+   domain->lastRes  = NULL;
+   
    /* Given the integer sequence positions, find the pointers to
       the PDB residues for these positions
    */
-   for(p=domain->chain->start; p!=domain->chain->stop; p=nextRes)
+   for(p=domain->chain->start;
+       p!=domain->chain->stop && p!=NULL;
+       p=nextRes)
    {
       nextRes = blFindNextResidue(p);
       if(resnum == domain->startSeqRes)
@@ -803,7 +809,7 @@ void SetDomainBoundaries(DOMAIN *domain)
    domain->CofG.x = domain->CofG.y = domain->CofG.z = 0.0;
    nCoor          = 0;
    
-   for(p=domain->startRes; p!=domain->stopRes; NEXT(p))
+   for(p=domain->startRes; p!=NULL && p!=domain->stopRes; NEXT(p))
    {
       if(!strncmp(p->atnam, "CA  ", 4))
       {
