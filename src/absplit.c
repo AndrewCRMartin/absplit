@@ -372,8 +372,9 @@ BOOL ProcessFile(WHOLEPDB *wpdb, char *infile, FILE *dataFp)
          PDBCHAIN *chain;
          DOMAIN   *domains = NULL;
 
-
+#ifdef DEBUG
          fprintf(stderr, "Sequence: %s\n", sequence);
+#endif
          
          SetChainAsAtomOrHetatm(pdbs->chains);
          
@@ -1379,7 +1380,8 @@ contacts with chain %s\n",
    return(foundAntigen);
 }
 
-void GetSequenceForChainSeqres(WHOLEPDB *wpdb, PDBCHAIN *chain, char *sequence)
+void GetSequenceForChainSeqres(WHOLEPDB *wpdb, PDBCHAIN *chain,
+                               char *sequence)
 {
    static MODRES *modres = NULL;
    static char   *seqres = NULL,
@@ -1392,13 +1394,16 @@ void GetSequenceForChainSeqres(WHOLEPDB *wpdb, PDBCHAIN *chain, char *sequence)
    if(seqres == NULL)
    {
       if((seqchains =
-          (char **)blArray2D(sizeof(char), MAXCHAINS, MAXCHAINLABEL))!=NULL)
+          (char **)blArray2D(sizeof(char), MAXCHAINS,
+                             MAXCHAINLABEL))!=NULL)
       {
          modres = blGetModresWholePDB(wpdb);
-         seqres = blGetSeqresAsStringWholePDB(wpdb, seqchains, modres, FALSE);
+         seqres = blGetSeqresAsStringWholePDB(wpdb, seqchains,
+                                              modres, FALSE);
          if(seqres)
          {
-            if((seqresCopy = (char *)malloc((strlen(seqres)+1)*sizeof(char)))==NULL)
+            if((seqresCopy = (char *)malloc((strlen(seqres)+1) *
+                                            sizeof(char)))==NULL)
             {
                fprintf(stderr, "No memory for copy the sequence\n");
                exit(1);
@@ -1690,7 +1695,8 @@ PDB *RelabelAntibodyChain(DOMAIN *domain, char *remark950)
       domain->newAbChainLabel[1] = '\0';
       
       sprintf(remark950, "REMARK 950 CHAIN %c     %c%6s\n",
-              domain->chainType, domain->chainType, domain->startRes->chain);
+              domain->chainType, domain->chainType,
+              domain->startRes->chain);
 
       for(p=domain->startRes; p!=domain->stopRes; NEXT(p))
       {
