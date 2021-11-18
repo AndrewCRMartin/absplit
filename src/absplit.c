@@ -504,8 +504,8 @@ REAL CompareSeqs(char *seqresSeq, char *refSeq,
    int  score;
    int  alignLen;
    int  bestPossibleScore,
-        bestPossibleScore1,
-        bestPossibleScore2;
+        bestPossibleScore1 = 100000,
+        bestPossibleScore2 = 100000;
 
    bestPossibleScore1 = blAffinealign(refSeq, strlen(refSeq),
                                       refSeq, strlen(refSeq),
@@ -517,15 +517,19 @@ REAL CompareSeqs(char *seqresSeq, char *refSeq,
                                       alignRef,
                                       &alignLen);
 
-   bestPossibleScore2 = blAffinealign(seqresSeq, strlen(seqresSeq),
-                                      seqresSeq, strlen(seqresSeq),
-                                      FALSE,          /* verbose         */
-                                      FALSE,          /* identity        */
-                                      GAPOPENPENALTY, /* penalty         */
-                                      GAPEXTPENALTY,  /* extension       */
-                                      alignSeqres,
-                                      alignRef,
-                                      &alignLen);
+   if(strlen(seqresSeq) >= 50)
+   {
+      bestPossibleScore2 = blAffinealign(seqresSeq, strlen(seqresSeq),
+                                         seqresSeq, strlen(seqresSeq),
+                                         FALSE,          /* verbose         */
+                                         FALSE,          /* identity        */
+                                         GAPOPENPENALTY, /* penalty         */
+                                         GAPEXTPENALTY,  /* extension       */
+                                         alignSeqres,
+                                         alignRef,
+                                         &alignLen);
+   }
+   
    bestPossibleScore = MIN(bestPossibleScore1, bestPossibleScore2);
 
    if(bestPossibleScore <= 0)
