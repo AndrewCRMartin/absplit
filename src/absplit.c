@@ -156,7 +156,7 @@ void WriteDomains(WHOLEPDB *wpdb, DOMAIN *domains, char *filestem);
 BOOL FlagAntigens(DOMAIN *domains, PDBSTRUCT *pdbs);
 BOOL IsNonPeptideHet(WHOLEPDB *wpdb, PDBRESIDUE *res);
 BOOL CheckAntigenContacts(DOMAIN *domain, PDBSTRUCT *pdbs);
-void SetChainTypes(PDBCHAIN *chains);
+void SetChainAsAtomOrHetatm(PDBCHAIN *chains);
 BOOL inIntArray(int value, int *array, int arrayLen);
 void GetSequenceForChainSeqres(WHOLEPDB *wpdb, PDBCHAIN *chain,
                                char *sequence);
@@ -168,8 +168,9 @@ PDB *RelabelAntibodyChain(DOMAIN *domain, char *remark950);
 PDB *RelabelAntigenChains(DOMAIN *domain, char *remark950);
 void WriteSeqres(FILE *fp, WHOLEPDB *wpdb, DOMAIN *d);
 int CountResidueAtoms(PDBRESIDUE *res);
-
-
+char *blFixSequenceWholePDB(WHOLEPDB *wpdb, char **outChains,
+                            BOOL ignoreSeqresForMissingChains,
+                            BOOL upper, BOOL quiet, char *label);
 
 /************************************************************************/
 int main(int argc, char **argv)
@@ -339,41 +340,72 @@ void GetFilestem(char *infile, char *filestem)
 /************************************************************************/
 BOOL ProcessFile(WHOLEPDB *wpdb, char *infile, FILE *dataFp)
 {
-   char      filestem[MAXBUFF];
+   char      filestem[MAXBUFF],
+             *sequence;
    PDBSTRUCT *pdbs;
-   DOMAIN    *domains = NULL;
+   PDB       *pdb;
+   int       nAtoms;
 
    GetFilestem(infile, filestem);
+
+   /* Remove any waters from the PDB linked list                        */
+   pdb = blStripWatersPDBAsCopy(wpdb->pdb, &nAtoms);
+   FREELIST(wpdb->pdb, PDB);
+   wpdb->pdb = pdb; wpdb->natoms = nAtoms;
+   
    if((pdbs = blAllocPDBStructure(wpdb->pdb))!=NULL)
    {
-      PDBCHAIN *chain;
-
-      SetChainTypes(pdbs->chains);
+      char **outChains = NULL;
       
-      for(chain=pdbs->chains; chain!=NULL; NEXT(chain))
+      if((outChains = (char **)blArray2D(sizeof(char),
+                                         MAXCHAINS,
+                                         blMAXCHAINLABEL))==NULL)
       {
-#ifdef DEBUG
-         printf("Ptr: %ld Type: %s\n", (ULONG)chain->start,
-                chain->start->record_type);
-#endif
-         if(chain->extras == CHAINTYPE_ATOM)
+         fprintf(stderr,"Error: No memory for outChains array\n");
+         return(FALSE);
+      }
+      
+      if((sequence = blFixSequenceWholePDB(wpdb, outChains,
+                                           TRUE, FALSE,
+                                           TRUE, NULL))!=NULL)
+      {
+         PDBCHAIN *chain;
+         DOMAIN   *domains = NULL;
+
+
+         fprintf(stderr, "Sequence: %s\n", sequence);
+         
+         SetChainAsAtomOrHetatm(pdbs->chains);
+         
+         for(chain=pdbs->chains; chain!=NULL; NEXT(chain))
          {
-            printf("\n***Handling chain: %s\n", chain->chain);
-            domains = FindVHVLDomains(wpdb, chain, dataFp, domains);
+#ifdef DEBUG
+            printf("Ptr: %ld Type: %s\n", (ULONG)chain->start,
+                   chain->start->record_type);
+#endif
+            if(chain->extras == CHAINTYPE_ATOM)
+            {
+               printf("\n***Handling chain: %s\n", chain->chain);
+               domains = FindVHVLDomains(wpdb, chain, dataFp, domains);
+            }
          }
+         
+         PairDomains(domains);
+         if(!FlagAntigens(domains, pdbs))
+         {
+            FlagHetAntigenChains(domains, pdbs);
+            FlagHetAntigenResidues(wpdb, domains, pdbs);
+         }
+         PrintDomains(domains);
+         WriteDomains(wpdb, domains, filestem);
+         
+         FREELIST(domains, DOMAIN);
+         blFreePDBStructure(pdbs);
       }
-
-      PairDomains(domains);
-      if(!FlagAntigens(domains, pdbs))
+      else
       {
-         FlagHetAntigenChains(domains, pdbs);
-         FlagHetAntigenResidues(wpdb, domains, pdbs);
+         return(FALSE);
       }
-      PrintDomains(domains);
-      WriteDomains(wpdb, domains, filestem);
-      
-      FREELIST(domains, DOMAIN);
-      blFreePDBStructure(pdbs);
    }
    else
    {
@@ -449,49 +481,51 @@ FILE *OpenSequenceDataFile(void)
 
 
 /************************************************************************/
-/*>REAL CompareSeqs(char *theSeq, char *seq, char *align1, char *align2)
-   ---------------------------------------------------------------------
+/*>REAL CompareSeqs(char *seqresSeq, char *refSeq, 
+                    char *alignSeqres, char *alignRef)
+   -----------------------------------------------
 *//**
-   \param[in]   theSeq   the sequence of interest
-   \param[in]   seq      the database sequence
-   \param[out]  align1   Alignment of our sequence
-   \param[out]  align2   Alignment of database sequence
+   \param[in]   seqresSeq   the sequence of interest
+   \param[in]   refSeq      the database sequence
+   \param[out]  alignSeqres   Alignment of our sequence
+   \param[out]  alignRef   Alignment of database sequence
    \return               Score for alignment
 
    - 31.03.20 Original   By: ACRM
    - 20.09.21 Modified to use affine alignment and mutation matrix
 */
-REAL CompareSeqs(char *theSeq, char *seq, char *align1, char *align2)
+REAL CompareSeqs(char *seqresSeq, char *refSeq,
+                 char *alignSeqres, char *alignRef)
 {
    int  score;
    int  alignLen;
    int  bestPossibleScore;
 
-   bestPossibleScore = blAffinealign(seq, strlen(seq),
-                                     seq, strlen(seq),
+   bestPossibleScore = blAffinealign(refSeq, strlen(refSeq),
+                                     refSeq, strlen(refSeq),
                                      FALSE,          /* verbose         */
                                      FALSE,          /* identity        */
                                      GAPOPENPENALTY, /* penalty         */
                                      GAPEXTPENALTY,  /* extension       */
-                                     align1,
-                                     align2,
+                                     alignSeqres,
+                                     alignRef,
                                      &alignLen);
 
-   score             = blAffinealign(theSeq, strlen(theSeq),
-                                     seq, strlen(seq),
+   score             = blAffinealign(seqresSeq, strlen(seqresSeq),
+                                     refSeq, strlen(refSeq),
                                      FALSE,          /* verbose         */
                                      FALSE,          /* identity        */
                                      GAPOPENPENALTY, /* penalty         */
                                      GAPEXTPENALTY,  /* extension       */
-                                     align1,
-                                     align2,
+                                     alignSeqres,
+                                     alignRef,
                                      &alignLen);
 
-   align1[alignLen]  = align2[alignLen] = '\0';
+   alignSeqres[alignLen]  = alignRef[alignLen] = '\0';
 
 #ifdef DEBUG   
-   fprintf(stderr, "\n>>>%s\n", align1);
-   fprintf(stderr, ">>>%s\n",   align2);
+   fprintf(stderr, "\n>>>%s\n", alignSeqres);
+   fprintf(stderr, ">>>%s\n",   alignRef);
 #endif
    
    return((REAL)score / (REAL)bestPossibleScore);
@@ -499,52 +533,54 @@ REAL CompareSeqs(char *theSeq, char *seq, char *align1, char *align2)
 
 
 /************************************************************************/
-DOMAIN *FindVHVLDomains(WHOLEPDB *wpdb, PDBCHAIN *chain, FILE *dataFp, DOMAIN *domains)
+DOMAIN *FindVHVLDomains(WHOLEPDB *wpdb, PDBCHAIN *chain, FILE *dataFp,
+                        DOMAIN *domains)
 {
-   char sequence[MAXSEQ];
+   char seqresSeq[MAXSEQ];
    
-   GetSequenceForChainSeqres(wpdb, chain, sequence);
+/*   GetSequenceForChainSeqres(wpdb, chain, seqresSeq); */
    
-/*   GetSequenceForChain(chain, sequence); */
+   GetSequenceForChain(chain, seqresSeq);
 #ifdef DEBUG
-   printf("Chain: %s Sequence: %s\n", chain->chain, sequence);
+   printf("Chain: %s Sequence: %s\n", chain->chain, seqresSeq);
 #endif
    while(TRUE)
    {
-      if(!CheckAndMask(sequence, dataFp, chain, &domains)) break;
+      if(!CheckAndMask(seqresSeq, dataFp, chain, &domains)) break;
    }
 
    return(domains);
 }
 
 /************************************************************************/
-BOOL CheckAndMask(char *sequence, FILE *dbFp, PDBCHAIN *chain,
+BOOL CheckAndMask(char *seqresSeq, FILE *dbFp, PDBCHAIN *chain,
                   DOMAIN **pDomains)
 {
-   char        bestMatch[MAXBUFF+1];
+   char        bestMatchFastaHeader[MAXBUFF+1];
    REAL        maxScore = 0.0;
-   static char align1[HUGEBUFF+1],
-               align2[HUGEBUFF+1];
-   static char bestAlign1[HUGEBUFF+1],
-               bestAlign2[HUGEBUFF+1];
+   static char alignSeqres[HUGEBUFF+1],
+               alignRef[HUGEBUFF+1];
+   static char bestAlignSeqres[HUGEBUFF+1],
+               bestAlignRef[HUGEBUFF+1];
    char        header[MAXBUFF+1];
-   char        *seq = NULL;
+   char        *refSeq = NULL;
    BOOL        found = FALSE;
    rewind(dbFp);
 
    /* Find the best match in the reference sequences                    */
-   while((seq = blReadFASTA(dbFp, header, MAXBUFF))!=NULL)
+   while((refSeq = blReadFASTA(dbFp, header, MAXBUFF))!=NULL)
    {
       REAL score;
          
-      score = CompareSeqs(sequence, seq, align1, align2);
+      score = CompareSeqs(seqresSeq, refSeq, alignSeqres, alignRef);
       if(score > maxScore)
       {
          maxScore = score;
-         strncpy(bestMatch,  header, MAXBUFF);
-         strncpy(bestAlign1, align1, HUGEBUFF);
-         strncpy(bestAlign2, align2, HUGEBUFF);
+         strncpy(bestMatchFastaHeader,  header, MAXBUFF);
+         strncpy(bestAlignSeqres, alignSeqres, HUGEBUFF);
+         strncpy(bestAlignRef, alignRef, HUGEBUFF);
       }
+      free(refSeq);
    }
 
    /* If we found an antibody sequence                                  */
@@ -553,13 +589,13 @@ BOOL CheckAndMask(char *sequence, FILE *dbFp, PDBCHAIN *chain,
       if(gVerbose)
       {
          fprintf(stderr, "Best match: %s Score: %.4f\n",
-                 bestMatch, maxScore);
-         fprintf(stderr, "SEQ: %s\n",   bestAlign1);
-         fprintf(stderr, "REF: %s\n\n", bestAlign2);
+                 bestMatchFastaHeader, maxScore);
+         fprintf(stderr, "SEQ: %s\n",   bestAlignSeqres);
+         fprintf(stderr, "REF: %s\n\n", bestAlignRef);
       }
       
-      MaskAndAssignDomain(sequence, chain, bestMatch,
-                          bestAlign1, bestAlign2, pDomains);
+      MaskAndAssignDomain(seqresSeq, chain, bestMatchFastaHeader,
+                          bestAlignSeqres, bestAlignRef, pDomains);
       found = TRUE;
    }
    
@@ -568,11 +604,14 @@ BOOL CheckAndMask(char *sequence, FILE *dbFp, PDBCHAIN *chain,
 
 
 /************************************************************************/
-void SetChainType(DOMAIN *domain, char *header)
+/* Uses the label in the FASTA file to set the chain type as heavy
+   or light
+*/
+void SetChainType(DOMAIN *domain, char *fastaHeader)
 {
    char *ptr;
    domain->chainType = '?';
-   if((ptr = strchr(header, '|'))!=NULL)
+   if((ptr = strchr(fastaHeader, '|'))!=NULL)
    {
       ptr--;
       domain->chainType = *ptr;
@@ -581,13 +620,13 @@ void SetChainType(DOMAIN *domain, char *header)
 
 
 /************************************************************************/
-void SetIFResidues(DOMAIN *domain, char *header)
+void SetIFResidues(DOMAIN *domain, char *fastaHeader)
 {
    char *ptr1, *ptr2, *bar;
    char headerCopy[MAXBUFF+1];
    
    domain->nInterface = 0;
-   strncpy(headerCopy, header, MAXBUFF);
+   strncpy(headerCopy, fastaHeader, MAXBUFF);
    headerCopy[MAXBUFF] = '\0';
    if((ptr1 = strchr(headerCopy, '['))!=NULL)
    {
@@ -613,14 +652,14 @@ void SetIFResidues(DOMAIN *domain, char *header)
 }
 
 /************************************************************************/
-void SetCDRResidues(DOMAIN *domain, char *header)
+void SetCDRResidues(DOMAIN *domain, char *fastaHeader)
 {
    char *ptr1, *ptr2;
    char headerCopy[MAXBUFF+1];
    
    domain->nCDRRes = 0;
 
-   strncpy(headerCopy, header, MAXBUFF);
+   strncpy(headerCopy, fastaHeader, MAXBUFF);
    headerCopy[MAXBUFF] = '\0';
 
    if((ptr1 = strchr(headerCopy, '['))!=NULL)
@@ -694,15 +733,15 @@ PairsWithDomain: %d (Chain: %s)\n",
          }
          printf("\n\n");
       }
-      blWritePDBRecord(stdout,d->startRes);
-      blWritePDBRecord(stdout,d->lastRes);
+      if(d->startRes) blWritePDBRecord(stdout,d->startRes);
+      if(d->lastRes)  blWritePDBRecord(stdout,d->lastRes);
 #endif
    }
 }
 
 
 /************************************************************************/
-void MaskAndAssignDomain(char *seq, PDBCHAIN *chain, char *header,
+void MaskAndAssignDomain(char *seq, PDBCHAIN *chain, char *fastaHeader,
                          char *seqAln, char *domAln, DOMAIN **pDomains)
 {
    int    seqPos    = 0,
@@ -741,9 +780,9 @@ void MaskAndAssignDomain(char *seq, PDBCHAIN *chain, char *header,
    d->nHetAntigen    = 0;
    d->nAntigenChains = 0;
    
-   SetChainType(d,   header);
-   SetIFResidues(d,  header);
-   SetCDRResidues(d, header);
+   SetChainType(d,   fastaHeader);
+   SetIFResidues(d,  fastaHeader);
+   SetCDRResidues(d, fastaHeader);
    
    for(seqPos=0, alnPos=0; seqPos<strlen(seqAln); seqPos++)
    {
@@ -815,6 +854,10 @@ void SetDomainBoundaries(DOMAIN *domain)
    {
       if(!strncmp(p->atnam, "CA  ", 4))
       {
+#ifdef FUBAR
+         fprintf(stderr, "Calc CofG %d: %s%d%s\n",
+                 domain->domainNumber, p->chain, p->resnum, p->insert);
+#endif
          domain->CofG.x += p->x;
          domain->CofG.y += p->y;
          domain->CofG.z += p->z;
@@ -876,51 +919,65 @@ void PairDomains(DOMAIN *domains)
    {
       for(d2=domains; d2!=NULL; NEXT(d2))
       {
-         REAL distCofGSq;
-         VEC3F *c1, *c2;
-         c1 = &(d1->CofG);
-         c2 = &(d2->CofG);
-
-         distCofGSq = DISTSQ(c1, c2);
-         
-         if((distCofGSq < COFGDISTCUTSQ) && (distCofGSq > 1.0))
+         if(d1 != d2)
          {
-            REAL distIntSq;
+            REAL distCofGSq;
+            VEC3F *c1, *c2;
+            c1 = &(d1->CofG);
+            c2 = &(d2->CofG);
             
-            c1 = &(d1->IntCofG);
-            c2 = &(d2->IntCofG);
+            distCofGSq = DISTSQ(c1, c2);
 
-            distIntSq = DISTSQ(c1, c2);
-            if(distIntSq < INTDISTCUTSQ)
-            {
-               if(distIntSq < distCofGSq)
-               {
-                  if(((distCofGSq < d1->pairCofGDistSq) ||
-                      (distIntSq  < d1->pairIntDistSq)) &&
-                     ((distCofGSq < d2->pairCofGDistSq) ||
-                      (distIntSq  < d2->pairIntDistSq)))
-                  {
-                     d1->pairCofGDistSq = distCofGSq;
-                     d1->pairIntDistSq  = distIntSq;
-                     d2->pairCofGDistSq = distCofGSq;
-                     d2->pairIntDistSq  = distIntSq;
-                     d1->pairedDomain = d2;
-                     d2->pairedDomain = d1;
-#ifdef DEBUG
-                     printf("*Paired domain %d with %d\n",
-                            d1->domainNumber, d2->domainNumber);
+#ifdef FUBAR
+            fprintf(stderr, "Chain1 %s; CofG1 %.3f %.3f %.3f; \
+Chain2 %s; CofG2 %.3f %.3f %.3f; \
+Dist %.3f\n",
+                    d1->lastRes->chain,
+                    c1->x, c1->y, c1->z, 
+                    d2->startRes->chain,
+                    c2->x, c2->y, c2->z,
+                    sqrt(distCofGSq));
 #endif
+            if((distCofGSq < COFGDISTCUTSQ) && (distCofGSq > 1.0))
+            {
+               REAL distIntSq;
+               
+               c1 = &(d1->IntCofG);
+               c2 = &(d2->IntCofG);
+               
+               distIntSq = DISTSQ(c1, c2);
+               if(distIntSq < INTDISTCUTSQ)
+               {
+                  if(distIntSq < distCofGSq)
+                  {
+                     if(((distCofGSq < d1->pairCofGDistSq) ||
+                         (distIntSq  < d1->pairIntDistSq)) &&
+                        ((distCofGSq < d2->pairCofGDistSq) ||
+                         (distIntSq  < d2->pairIntDistSq)))
+                     {
+                        d1->pairCofGDistSq = distCofGSq;
+                        d1->pairIntDistSq  = distIntSq;
+                        d2->pairCofGDistSq = distCofGSq;
+                        d2->pairIntDistSq  = distIntSq;
+                        d1->pairedDomain = d2;
+                        d2->pairedDomain = d1;
+#ifdef DEBUG
+                        printf("*Paired domain %d with %d\n",
+                               d1->domainNumber, d2->domainNumber);
+#endif
+                     }
                   }
                }
-            }
-            
+               
 #ifdef DEBUG
-            printf("CofG Distance (domain %d to %d): %.3f\n",
-                   d1->domainNumber, d2->domainNumber, sqrt(distCofGSq));
-            printf("Interface Distance (domain %d to %d): %.3f\n\n",
-                   d1->domainNumber, d2->domainNumber, sqrt(distIntSq));
+               printf("CofG Distance (domain %d to %d): %.3f\n",
+                      d1->domainNumber, d2->domainNumber,
+                      sqrt(distCofGSq));
+               printf("Interface Distance (domain %d to %d): %.3f\n\n",
+                      d1->domainNumber, d2->domainNumber,
+                      sqrt(distIntSq));
 #endif
-            
+            }
          }
       }
 #ifdef DEBUG
@@ -1125,7 +1182,7 @@ BOOL FlagAntigens(DOMAIN *domains, PDBSTRUCT *pdbs)
 
 
 /************************************************************************/
-void SetChainTypes(PDBCHAIN *chains)
+void SetChainAsAtomOrHetatm(PDBCHAIN *chains)
 {
    PDBCHAIN *c;
    PDB      *p;
@@ -1742,21 +1799,24 @@ void WriteSeqres(FILE *fp, WHOLEPDB *wpdb, DOMAIN *domain)
       }
    }
    
-   /* Print SEQRES for the partner domain's chain                             */
+   /* Print SEQRES for the partner domain's chain                       */
    for(s=wpdb->header; s!=NULL; NEXT(s))
    {
       if(!strncmp(s->string, "SEQRES", 6))
       {
-         if(s->string[11] == domain->pairedDomain->startRes->chain[0])
+         if(domain->pairedDomain != NULL)
          {
-            strcpy(buffer, s->string);
-            buffer[11] = domain->pairedDomain->newAbChainLabel[0];
-            fprintf(fp, "%s", buffer);
+            if(s->string[11] == domain->pairedDomain->startRes->chain[0])
+            {
+               strcpy(buffer, s->string);
+               buffer[11] = domain->pairedDomain->newAbChainLabel[0];
+               fprintf(fp, "%s", buffer);
+            }
          }
       }
    }
    
-   /* Print SEQRES for the antigen chains                                     */
+   /* Print SEQRES for the antigen chains                               */
    for(i=0; i<domain->nAntigenChains; i++)
    {
       PDBCHAIN *chain = domain->antigenChains[i];
@@ -1775,4 +1835,99 @@ void WriteSeqres(FILE *fp, WHOLEPDB *wpdb, DOMAIN *domain)
       }
    }
 }
+
+
+char *blFixSequenceWholePDB(WHOLEPDB *wpdb, char **outChains,
+                            BOOL ignoreSeqresForMissingChains,
+                            BOOL upper, BOOL quiet, char *label)
+{
+   PDB    *pdb;
+   MODRES *modres         = NULL;
+   char   *seqresSequence = NULL,
+          *atomSequence   = NULL,
+          *fixedSequence  = NULL,
+          **seqresChains  = NULL,
+          **atomChains    = NULL;
+   int    nAtomChains,
+          len1;
+   
+   pdb = wpdb->pdb;
+   
+   if((seqresChains = (char **)blArray2D(sizeof(char),
+                                         MAXCHAINS,
+                                         blMAXCHAINLABEL))==NULL)
+   {
+      fprintf(stderr,"Error: No memory for seqresChains array\n");
+      return(NULL);
+   }
+   
+   /* Read MODRES and SEQRES records                                    */
+   modres         = blGetModresWholePDB(wpdb);
+   seqresSequence = blGetSeqresAsStringWholePDB(wpdb,
+                                                seqresChains,
+                                                modres, TRUE);
+   
+   /* Get list of chains from the PDB linked list                       */
+   if((atomChains = blGetPDBChainLabels(pdb, &nAtomChains))
+      == NULL)
+   {
+      fprintf(stderr,"Error: No memory for atom chain labels\n");
+      return(NULL);
+   }
+   
+   /* Convert PDB linked list to a sequence                             */
+   if((atomSequence = blPDB2SeqX(pdb))==NULL)
+   {
+      fprintf(stderr,"Error: No memory for sequence data\n");
+      return(NULL);
+   }
+   /* Append a * since blPDB2Seq() doesn't do this; note that
+      this will have to change if we fix blPDB2Seq() in future
+   */
+   len1 = strlen(atomSequence);
+   if((atomSequence=(char *)realloc((void *)atomSequence,
+                                    (len1+2)*sizeof(char)))==NULL)
+   {
+      fprintf(stderr,"Error: No memory to expand sequence data\n");
+      return(NULL);
+   }
+   strcat(atomSequence,"*");
+   
+#ifdef DEBUG
+   fprintf(stderr,"\nSEQRES sequence:\n");
+   fprintf(stderr,"%s\n", seqresSequence);
+   fprintf(stderr,"\nATOM sequence:\n");
+   fprintf(stderr,"%s\n", atomSequence);
+#endif
+   
+   /* Fiddle with sequences to combine information from SEQRES
+      and ATOM records
+   */
+   if((fixedSequence = blFixSequence(seqresSequence,atomSequence,
+                                     seqresChains,atomChains,outChains,
+                                     ignoreSeqresForMissingChains,
+                                     nAtomChains,upper,quiet,label))
+      ==NULL)
+      return(NULL);
+   
+#ifdef DEBUG
+   fprintf(stderr, "Fixed sequence:\n");
+   fprintf(stderr, "%s\n", fixedSequence);
+#endif
+
+   /* Free allocated memory                                             */
+   if(seqresChains!=NULL)
+      blFreeArray2D(seqresChains, MAXCHAINS, blMAXCHAINLABEL);
+   if(atomChains!=NULL)
+      blFreeArray2D(atomChains, nAtomChains, blMAXCHAINLABEL);
+
+   if(modres!=NULL)
+      FREELIST(modres, MODRES);
+
+   FREE(seqresSequence);
+   FREE(atomSequence);
+   
+   return(fixedSequence);
+}
+
 
