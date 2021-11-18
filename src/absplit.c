@@ -1472,7 +1472,6 @@ void GetSequenceForChainSeqres(WHOLEPDB *wpdb, PDBCHAIN *chain,
       GetSequenceForChain(chain, sequence);
    }
 }
-
    
    
 /************************************************************************/
@@ -1490,6 +1489,7 @@ void FlagHetAntigenChains(DOMAIN *domains, PDBSTRUCT *pdbs)
       if(c->extras == CHAINTYPE_HET)
       {
          PDBRESIDUE *r;
+
          /* Go through the residues in this HET chain                   */
          for(r=c->residues; r!=NULL; NEXT(r))
          {
@@ -1505,13 +1505,15 @@ void FlagHetAntigenChains(DOMAIN *domains, PDBSTRUCT *pdbs)
                   /* Go through the atoms in this non-water HET residue */
                   for(pc=r->start; pc!=r->stop; NEXT(pc))
                   {
-                     /* Go through the residues in this antibody domain    */
-                     for(pdRes=d->startRes; pdRes!=d->stopRes; pdRes=nextResP)
+                     /* Go through the residues in this antibody domain */
+                     for(pdRes=d->startRes;
+                         pdRes!=d->stopRes;
+                         pdRes=nextResP)
                      {
                         nextResP = blFindNextResidue(pdRes);
                         resnum++;
                         
-                        /* If this is a CDR residue                         */
+                        /* If this is a CDR residue                     */
                         if(InIntArray(resnum, d->CDRRes, d->nCDRRes))
                         {
                            for(pd=pdRes; pd!=nextResP; NEXT(pd))
@@ -1521,7 +1523,8 @@ void FlagHetAntigenChains(DOMAIN *domains, PDBSTRUCT *pdbs)
                               */
                               if(DISTSQ(pc, pd) < CONTACTDISTSQ)
                               {
-                                 printf("HET group %s%d%s contacts Domain %d\n",
+                                 printf("HET group %s%d%s contacts \
+Domain %d\n",
                                         pc->chain, pc->resnum, pc->insert,
                                         d->domainNumber);
 #ifdef DEBUG
@@ -1531,20 +1534,23 @@ void FlagHetAntigenChains(DOMAIN *domains, PDBSTRUCT *pdbs)
                                         pd->chain, pd->resnum,
                                         pd->insert, pd->atnam);
 #endif
-                                 /* Flag this HET residue as making contact   */
+                                 /* Flag this HET residue as making 
+                                    contact   
+                                 */
                                  if(d->nHetAntigen < MAXHETANTIGEN)
                                  {
                                     d->hetAntigen[d->nHetAntigen++] = r;
 #ifndef DEBUG
-                                    printf("Stored domain %d residue %s\n",
+                                    printf("Stored domain %d residue \
+%s\n",
                                            d->domainNumber, r->resid);
 #endif
                                  }
                                  goto lastatom;
-                              }  /* In range                                  */
-                           }  /* Step through atoms in this residue   */
-                        } /* Is a CDR residue */
-                     } /* Step through residues in this domain */
+                              }  /* In distance range                   */
+                           }  /* Step through atoms in this residue     */
+                        } /* Is a CDR residue                           */
+                     } /* Step through residues in this domain          */
                   }  /* step through atoms in the non-water HET residue */
                lastatom:
                   continue;
@@ -1554,8 +1560,6 @@ void FlagHetAntigenChains(DOMAIN *domains, PDBSTRUCT *pdbs)
       }  /* Is a HET chain                                              */
    }  /* Step through chains                                            */
 }
-
-
 
 
 /************************************************************************/
