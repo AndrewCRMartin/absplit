@@ -1527,7 +1527,7 @@ void FlagHetAntigenChains(DOMAIN *domains, PDBSTRUCT *pdbs)
 Domain %d\n",
                                         pc->chain, pc->resnum, pc->insert,
                                         d->domainNumber);
-#ifdef DEBUG
+#ifndef DEBUG
                                  printf("%s%d%s.%s contacts %s%d%s.%s\n",
                                         pc->chain, pc->resnum,
                                         pc->insert, pc->atnam,
@@ -1540,7 +1540,7 @@ Domain %d\n",
                                  if(d->nHetAntigen < MAXHETANTIGEN)
                                  {
                                     d->hetAntigen[d->nHetAntigen++] = r;
-#ifndef DEBUG
+#ifdef DEBUG
                                     printf("Stored domain %d residue \
 %s\n",
                                            d->domainNumber, r->resid);
@@ -1591,43 +1591,57 @@ void FlagHetAntigenResidues(WHOLEPDB *wpdb, DOMAIN *domains,
                   /* Go through the antibody domains                    */
                   for(d=domains; d!=NULL; NEXT(d))
                   {
-                     PDB *pc, *pd;
+                     PDB *pc, *pd, *pdRes, *nextResP;
+                     int resnum = 0;
                      /* Go through the atoms in this non-water, 
                         non-peptide HET residue 
                      */
                      for(pc=r->start; pc!=r->stop; NEXT(pc))
                      {
-                        /* Go through the atoms in this antibody domain */
-                        for(pd=d->startRes; pd!=d->stopRes; NEXT(pd))
+                        /* Go through the residues in this antibody domain */
+                        for(pdRes=d->startRes;
+                            pdRes!=d->stopRes;
+                            pdRes=nextResP)
                         {
-                           /* If this atom is close enough to the HET 
-                              residue 
-                           */
-                           if(DISTSQ(pc, pd) < CONTACTDISTSQ)
+                           nextResP = blFindNextResidue(pdRes);
+                           resnum++;
+                           
+                           /* If this is a CDR residue                     */
+                           if(InIntArray(resnum, d->CDRRes, d->nCDRRes))
                            {
-                              printf("HET group %s%d%s contacts Domain \
-%d\n",
-                                     pc->chain, pc->resnum, pc->insert,
-                                     d->domainNumber);
-#ifdef DEBUG
-                              printf("%s%d%s.%s contacts %s%d%s.%s\n",
-                                     pc->chain, pc->resnum,
-                                     pc->insert, pc->atnam,
-                                     pd->chain, pd->resnum,
-                                     pd->insert, pd->atnam);
-#endif
-                              /* Flag this HET residue as making contact*/
-                              if(d->nHetAntigen < MAXHETANTIGEN)
+                              
+                              for(pd=pdRes; pd!=nextResP; NEXT(pd))
                               {
-                                 d->hetAntigen[d->nHetAntigen++] = r;
-#ifndef DEBUG
-                                 printf("Stored domain %d residue %s\n",
-                                        d->domainNumber, r->resid);
+                                 /* If this atom is close enough to the HET 
+                                    residue 
+                                 */
+                                 if(DISTSQ(pc, pd) < CONTACTDISTSQ)
+                                 {
+#ifdef DEBUG
+                                    printf("HET group %s%d%s contacts Domain \
+%d\n",
+                                           pc->chain, pc->resnum, pc->insert,
+                                           d->domainNumber);
+                                    printf("%s%d%s.%s contacts %s%d%s.%s\n",
+                                           pc->chain, pc->resnum,
+                                           pc->insert, pc->atnam,
+                                           pd->chain, pd->resnum,
+                                           pd->insert, pd->atnam);
 #endif
-                              }
-                              goto lastatom;
-                           }  /* In range                               */
-                        }  /* Step through atoms in this antibody domain*/
+                                    /* Flag this HET residue as making contact*/
+                                    if(d->nHetAntigen < MAXHETANTIGEN)
+                                    {
+                                       d->hetAntigen[d->nHetAntigen++] = r;
+#ifndef DEBUG
+                                       printf("Stored domain %d residue %s\n",
+                                              d->domainNumber, r->resid);
+#endif
+                                    }
+                                    goto lastatom;
+                                 }  /* In range                               */
+                              }  /* Step through atoms in this antibody residue*/
+                           }  /* If it's a CDR residue */
+                        }  /* Step through residues in this antibody domain*/
                      }  /* step through atoms in the non-water HET res  */
                   lastatom:
                      continue;
