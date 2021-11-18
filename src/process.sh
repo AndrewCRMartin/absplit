@@ -1,5 +1,5 @@
 input=$1
-absplit=${HOME}/git/absplit/src/absplit
+absplit=${HOME}/git/absplit/bin/absplit
 numberabpdb=${HOME}/git/absplit/src/numberabpdb.pl
 combinefaa=${HOME}/git/absplit/src/combinefaa.pl
 getfooter=${HOME}/git/absplit/src/getHETAndFooterRecords.pl

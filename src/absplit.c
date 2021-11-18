@@ -82,7 +82,9 @@
 #define INTDISTCUTSQ    400.0  /* 20^2 - for VH/VL interface contact    */
 #define CONTACTDISTSQ   36.0   /* 6^2  - for antigen contacts           */
 #define MINAGCONTACTS   14     /* Tweaked with CONTACTDISTSQ to get Ag for
-                                  6o8d but not too much for 1dee        */
+                                  6o8d but not too much for 1dee
+                                  Currently includes xtal packing for 
+                                  1a6v                                  */
 #define MAXANTIGEN      16
 #define MAXCHAINS       80
 #define MAXCHAINLABEL   blMAXCHAINLABEL
@@ -153,7 +155,7 @@ void PrintDomains(DOMAIN *domains);
 void SetDomainBoundaries(DOMAIN *domain);
 void PairDomains(DOMAIN *domains);
 void WriteDomains(WHOLEPDB *wpdb, DOMAIN *domains, char *filestem);
-BOOL FlagAntigens(DOMAIN *domains, PDBSTRUCT *pdbs);
+BOOL FlagProteinAntigens(DOMAIN *domains, PDBSTRUCT *pdbs);
 BOOL IsNonPeptideHet(WHOLEPDB *wpdb, PDBRESIDUE *res);
 BOOL CheckAntigenContacts(DOMAIN *domain, PDBSTRUCT *pdbs);
 void SetChainAsAtomOrHetatm(PDBCHAIN *chains);
@@ -392,11 +394,11 @@ BOOL ProcessFile(WHOLEPDB *wpdb, char *infile, FILE *dataFp)
          }
          
          PairDomains(domains);
-         if(!FlagAntigens(domains, pdbs))
-         {
-            FlagHetAntigenChains(domains, pdbs);
-            FlagHetAntigenResidues(wpdb, domains, pdbs);
-         }
+
+         FlagProteinAntigens(domains, pdbs);
+         FlagHetAntigenChains(domains, pdbs);
+         FlagHetAntigenResidues(wpdb, domains, pdbs);
+
          PrintDomains(domains);
          WriteDomains(wpdb, domains, filestem);
          
@@ -621,6 +623,11 @@ void SetChainType(DOMAIN *domain, char *fastaHeader)
 
 
 /************************************************************************/
+/* TODO!
+   This needs to take the alignment and translate the residues numbers
+   to the PDB sequential number instead of what is in the FASTA file
+   header
+*/
 void SetIFResidues(DOMAIN *domain, char *fastaHeader)
 {
    char *ptr1, *ptr2, *bar;
@@ -653,6 +660,11 @@ void SetIFResidues(DOMAIN *domain, char *fastaHeader)
 }
 
 /************************************************************************/
+/* TODO!
+   This needs to take the alignment and translate the residues numbers
+   to the PDB sequential number instead of what is in the FASTA file
+   header
+*/
 void SetCDRResidues(DOMAIN *domain, char *fastaHeader)
 {
    char *ptr1, *ptr2;
@@ -1155,7 +1167,7 @@ void WriteDomains(WHOLEPDB *wpdb, DOMAIN *domains, char *filestem)
 }
 
 /************************************************************************/
-BOOL FlagAntigens(DOMAIN *domains, PDBSTRUCT *pdbs)
+BOOL FlagProteinAntigens(DOMAIN *domains, PDBSTRUCT *pdbs)
 {
    DOMAIN *d;
    BOOL   foundAntigen = FALSE;
