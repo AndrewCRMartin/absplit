@@ -1,3 +1,4 @@
+#define DEBUG_AG_CONTACTS 1
 /************************************************************************/
 /**
 
@@ -502,18 +503,34 @@ REAL CompareSeqs(char *seqresSeq, char *refSeq,
 {
    int  score;
    int  alignLen;
-   int  bestPossibleScore;
+   int  bestPossibleScore,
+        bestPossibleScore1,
+        bestPossibleScore2;
 
-   bestPossibleScore = blAffinealign(refSeq, strlen(refSeq),
-                                     refSeq, strlen(refSeq),
-                                     FALSE,          /* verbose         */
-                                     FALSE,          /* identity        */
-                                     GAPOPENPENALTY, /* penalty         */
-                                     GAPEXTPENALTY,  /* extension       */
-                                     alignSeqres,
-                                     alignRef,
-                                     &alignLen);
+   bestPossibleScore1 = blAffinealign(refSeq, strlen(refSeq),
+                                      refSeq, strlen(refSeq),
+                                      FALSE,          /* verbose         */
+                                      FALSE,          /* identity        */
+                                      GAPOPENPENALTY, /* penalty         */
+                                      GAPEXTPENALTY,  /* extension       */
+                                      alignSeqres,
+                                      alignRef,
+                                      &alignLen);
 
+   bestPossibleScore2 = blAffinealign(seqresSeq, strlen(seqresSeq),
+                                      seqresSeq, strlen(seqresSeq),
+                                      FALSE,          /* verbose         */
+                                      FALSE,          /* identity        */
+                                      GAPOPENPENALTY, /* penalty         */
+                                      GAPEXTPENALTY,  /* extension       */
+                                      alignSeqres,
+                                      alignRef,
+                                      &alignLen);
+   bestPossibleScore = MIN(bestPossibleScore1, bestPossibleScore2);
+
+   if(bestPossibleScore <= 0)
+      return(0);
+   
    score             = blAffinealign(seqresSeq, strlen(seqresSeq),
                                      refSeq, strlen(refSeq),
                                      FALSE,          /* verbose         */
@@ -530,6 +547,10 @@ REAL CompareSeqs(char *seqresSeq, char *refSeq,
    fprintf(stderr, "\n>>>%s\n", alignSeqres);
    fprintf(stderr, ">>>%s\n",   alignRef);
 #endif
+
+   fprintf(stderr, "%d %d %d %.3f\n",
+           bestPossibleScore1, bestPossibleScore2,
+           bestPossibleScore, ((REAL)score / (REAL)bestPossibleScore));
    
    return((REAL)score / (REAL)bestPossibleScore);
 }
@@ -1286,7 +1307,7 @@ BOOL CheckAntigenContacts(DOMAIN *domain, PDBSTRUCT *pdbs)
          {
             int resnum = 0;
 
-#ifdef DEBUG
+#ifdef DEBUG_AG_CONTACTS
             printf("Checking domain %d (chain %s) against chain %s\n",
                    domain->domainNumber, domain->chain->chain,
                    chain->chain);
@@ -1306,7 +1327,7 @@ BOOL CheckAntigenContacts(DOMAIN *domain, PDBSTRUCT *pdbs)
                      
                      if(RegionsMakeContact(p, nextResP, q, nextResQ))
                      {
-#ifdef DEBUG
+#ifdef DEBUG_AG_CONTACTS
                         printf("Domain %d (chain %s) makes %d contacts \
 with chain %s\n",
                                domain->domainNumber,
@@ -1321,9 +1342,7 @@ with chain %s\n",
                            if((pairedDomain != NULL) &&
                               (pairedDomain->nAntigenChains < MAXANTIGEN))
                               pairedDomain->antigenChains[pairedDomain->nAntigenChains++] = chain;
-#ifndef DEBUG
                            goto break1;
-#endif
                         }
                      }
                   }
@@ -1335,7 +1354,7 @@ with chain %s\n",
             /* Check partner domain for contacts                        */
             if(pairedDomain != NULL)
             {
-#ifdef DEBUG
+#ifdef DEBUG_AG_CONTACTS
                printf("Checking partner domain %d (chain %s) against \
 chain %s\n",
                       pairedDomain->domainNumber,
@@ -1357,7 +1376,7 @@ chain %s\n",
                         
                         if(RegionsMakeContact(p, nextResP, q, nextResQ))
                         {
-#ifdef DEBUG
+#ifdef DEBUG_AG_CONTACTS
                            printf("Domain %d (chain %s) makes %d \
 contacts with chain %s\n",
                                   pairedDomain->domainNumber,
@@ -1373,9 +1392,6 @@ contacts with chain %s\n",
                               if((pairedDomain != NULL) &&
                                  (pairedDomain->nAntigenChains < MAXANTIGEN))
                                  pairedDomain->antigenChains[pairedDomain->nAntigenChains++] = chain;
-#ifndef DEBUG
-                              goto break1;
-#endif
                            }
                         }
                      }
