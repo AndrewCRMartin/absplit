@@ -86,6 +86,7 @@
                                   6o8d but not too much for 1dee
                                   Currently includes xtal packing for 
                                   1a6v                                  */
+#define MINHETATOMS     8
 #define MAXANTIGEN      16
 #define MAXCHAINS       80
 #define MAXCHAINLABEL   blMAXCHAINLABEL
@@ -150,8 +151,8 @@ REAL CompareSeqs(char *theSeq, char *seq, char *align1, char *align2);
 void MaskAndAssignDomain(char *seq, PDBCHAIN *chain, char *bestMatch,
                          char *aln1, char *aln2, DOMAIN **pDomains);
 void SetChainType(DOMAIN *domain, char *header);
-void SetIFResidues(DOMAIN *domain, char *header);
-void SetCDRResidues(DOMAIN *domain, char *header);
+void SetIFResidues(DOMAIN *domain, char *header, char *seqAln);
+void SetCDRResidues(DOMAIN *domain, char *header, char *seqAln);
 void PrintDomains(DOMAIN *domains);
 void SetDomainBoundaries(DOMAIN *domain);
 void PairDomains(DOMAIN *domains);
@@ -174,6 +175,8 @@ int CountResidueAtoms(PDBRESIDUE *res);
 char *blFixSequenceWholePDB(WHOLEPDB *wpdb, char **outChains,
                             BOOL ignoreSeqresForMissingChains,
                             BOOL upper, BOOL quiet, char *label);
+int TransferResnum(int refResnum, char *seqAln);
+
 
 /************************************************************************/
 int main(int argc, char **argv)
@@ -509,10 +512,10 @@ REAL CompareSeqs(char *seqresSeq, char *refSeq,
 
    bestPossibleScore1 = blAffinealign(refSeq, strlen(refSeq),
                                       refSeq, strlen(refSeq),
-                                      FALSE,          /* verbose         */
-                                      FALSE,          /* identity        */
-                                      GAPOPENPENALTY, /* penalty         */
-                                      GAPEXTPENALTY,  /* extension       */
+                                      FALSE,          /* verbose        */
+                                      FALSE,          /* identity       */
+                                      GAPOPENPENALTY, /* penalty        */
+                                      GAPEXTPENALTY,  /* extension      */
                                       alignSeqres,
                                       alignRef,
                                       &alignLen);
@@ -521,10 +524,10 @@ REAL CompareSeqs(char *seqresSeq, char *refSeq,
    {
       bestPossibleScore2 = blAffinealign(seqresSeq, strlen(seqresSeq),
                                          seqresSeq, strlen(seqresSeq),
-                                         FALSE,          /* verbose         */
-                                         FALSE,          /* identity        */
-                                         GAPOPENPENALTY, /* penalty         */
-                                         GAPEXTPENALTY,  /* extension       */
+                                         FALSE,          /* verbose     */
+                                         FALSE,          /* identity    */
+                                         GAPOPENPENALTY, /* penalty     */
+                                         GAPEXTPENALTY,  /* extension   */
                                          alignSeqres,
                                          alignRef,
                                          &alignLen);
@@ -535,15 +538,15 @@ REAL CompareSeqs(char *seqresSeq, char *refSeq,
    if(bestPossibleScore <= 0)
       return(0);
    
-   score             = blAffinealign(seqresSeq, strlen(seqresSeq),
-                                     refSeq, strlen(refSeq),
-                                     FALSE,          /* verbose         */
-                                     FALSE,          /* identity        */
-                                     GAPOPENPENALTY, /* penalty         */
-                                     GAPEXTPENALTY,  /* extension       */
-                                     alignSeqres,
-                                     alignRef,
-                                     &alignLen);
+   score = blAffinealign(seqresSeq, strlen(seqresSeq),
+                         refSeq, strlen(refSeq),
+                         FALSE,          /* verbose                     */
+                         FALSE,          /* identity                    */
+                         GAPOPENPENALTY, /* penalty                     */
+                         GAPEXTPENALTY,  /* extension                   */
+                         alignSeqres,
+                         alignRef,
+                         &alignLen);
 
    alignSeqres[alignLen]  = alignRef[alignLen] = '\0';
 
@@ -552,10 +555,6 @@ REAL CompareSeqs(char *seqresSeq, char *refSeq,
    fprintf(stderr, ">>>%s\n",   alignRef);
 #endif
 
-   fprintf(stderr, "%d %d %d %.3f\n",
-           bestPossibleScore1, bestPossibleScore2,
-           bestPossibleScore, ((REAL)score / (REAL)bestPossibleScore));
-   
    return((REAL)score / (REAL)bestPossibleScore);
 }
 
@@ -564,17 +563,17 @@ REAL CompareSeqs(char *seqresSeq, char *refSeq,
 DOMAIN *FindVHVLDomains(WHOLEPDB *wpdb, PDBCHAIN *chain, FILE *dataFp,
                         DOMAIN *domains)
 {
-   char seqresSeq[MAXSEQ];
+   char sequence[MAXSEQ];
    
-/*   GetSequenceForChainSeqres(wpdb, chain, seqresSeq); */
+/*   GetSequenceForChainSeqres(wpdb, chain, sequence); */
    
-   GetSequenceForChain(chain, seqresSeq);
+   GetSequenceForChain(chain, sequence);
 #ifdef DEBUG
-   printf("Chain: %s Sequence: %s\n", chain->chain, seqresSeq);
+   printf("Chain: %s Sequence: %s\n", chain->chain, sequence);
 #endif
    while(TRUE)
    {
-      if(!CheckAndMask(seqresSeq, dataFp, chain, &domains)) break;
+      if(!CheckAndMask(sequence, dataFp, chain, &domains)) break;
    }
 
    return(domains);
@@ -653,10 +652,12 @@ void SetChainType(DOMAIN *domain, char *fastaHeader)
    to the PDB sequential number instead of what is in the FASTA file
    header
 */
-void SetIFResidues(DOMAIN *domain, char *fastaHeader)
+void SetIFResidues(DOMAIN *domain, char *fastaHeader, char *seqAln)
 {
    char *ptr1, *ptr2, *bar;
    char headerCopy[MAXBUFF+1];
+   int  refResnum,
+        atomResnum;
    
    domain->nInterface = 0;
    strncpy(headerCopy, fastaHeader, MAXBUFF);
@@ -672,29 +673,32 @@ void SetIFResidues(DOMAIN *domain, char *fastaHeader)
             break;
 
          *ptr2 = '\0';
-         sscanf(ptr1, "%d", &(domain->interface[domain->nInterface++]));
+         sscanf(ptr1, "%d", &refResnum);
+         atomResnum = TransferResnum(refResnum, seqAln);
+         if(atomResnum > 0)
+            domain->interface[domain->nInterface++] = atomResnum;
          ptr1  = ptr2+1;
       }
       
       if((ptr2 = strchr(ptr1, ']'))!=NULL)
       {
          *ptr2 = '\0';
-         sscanf(ptr1, "%d", &(domain->interface[domain->nInterface++]));
+         sscanf(ptr1, "%d", &refResnum);
+         atomResnum = TransferResnum(refResnum, seqAln);
+         if(atomResnum > 0)
+            domain->interface[domain->nInterface++] = atomResnum;
       }
    }
 }
 
 /************************************************************************/
-/* TODO!
-   This needs to take the alignment and translate the residues numbers
-   to the PDB sequential number instead of what is in the FASTA file
-   header
-*/
-void SetCDRResidues(DOMAIN *domain, char *fastaHeader)
+void SetCDRResidues(DOMAIN *domain, char *fastaHeader, char *seqAln)
 {
-   char *ptr1, *ptr2;
-   char headerCopy[MAXBUFF+1];
-   
+   char *ptr1, *ptr2,
+        headerCopy[MAXBUFF+1];
+   int  refResnum,
+        atomResnum;
+
    domain->nCDRRes = 0;
 
    strncpy(headerCopy, fastaHeader, MAXBUFF);
@@ -710,18 +714,45 @@ void SetCDRResidues(DOMAIN *domain, char *fastaHeader)
          while((ptr2 = strchr(ptr1, ','))!=NULL)
          {
             *ptr2 = '\0';
-            sscanf(ptr1, "%d", &(domain->CDRRes[domain->nCDRRes++]));
+            sscanf(ptr1, "%d", &refResnum);
+            atomResnum = TransferResnum(refResnum, seqAln);
+            if(atomResnum > 0)
+               domain->CDRRes[domain->nCDRRes++] = atomResnum;
             ptr1=ptr2+1;
          }
       
          if((ptr2 = strchr(ptr1, ']'))!=NULL)
          {
             *ptr2 = '\0';
-            sscanf(ptr1, "%d", &(domain->CDRRes[domain->nCDRRes++]));
+            sscanf(ptr1, "%d", &refResnum);
+            atomResnum = TransferResnum(refResnum, seqAln);
+            if(atomResnum > 0)
+               domain->CDRRes[domain->nCDRRes++] = atomResnum;
          }
       }
    }
 }
+
+
+/************************************************************************/
+int TransferResnum(int refResnum, char *seqAln)
+{
+   int atomResnum = 0,
+       i;
+
+   /* The position of interest is missing in the atom sequence          */
+   if(seqAln[refResnum] == '-')
+      return(-1);
+   
+   for(i=0; i<refResnum; i++)
+   {
+      if(seqAln[i] != '-')
+         atomResnum++;
+   }
+
+   return(atomResnum);
+}
+
 
 
 /************************************************************************/
@@ -780,7 +811,7 @@ PairsWithDomain: %d (Chain: %s)\n",
 
 /************************************************************************/
 void MaskAndAssignDomain(char *seq, PDBCHAIN *chain, char *fastaHeader,
-                         char *seqAln, char *domAln, DOMAIN **pDomains)
+                         char *seqAln, char *refAln, DOMAIN **pDomains)
 {
    int    seqPos    = 0,
           alnPos    = 0,
@@ -818,9 +849,14 @@ void MaskAndAssignDomain(char *seq, PDBCHAIN *chain, char *fastaHeader,
    d->nHetAntigen    = 0;
    d->nAntigenChains = 0;
    
+#ifdef DEBUG_SET_CDR
+   printf("SEQ: %s\n", seqAln);
+   printf("REF: %s\n", refAln);
+#endif
+
    SetChainType(d,   fastaHeader);
-   SetIFResidues(d,  fastaHeader);
-   SetCDRResidues(d, fastaHeader);
+   SetIFResidues(d,  fastaHeader, seqAln);
+   SetCDRResidues(d, fastaHeader, seqAln);
    
    for(seqPos=0, alnPos=0; seqPos<strlen(seqAln); seqPos++)
    {
@@ -829,14 +865,14 @@ void MaskAndAssignDomain(char *seq, PDBCHAIN *chain, char *fastaHeader,
          alnPos++;
       }
       
-      if((domAln[alnPos] != '-') &&
-         (domAln[alnPos] != '\0'))
+      if((refAln[alnPos] != '-') &&
+         (refAln[alnPos] != '\0'))
       {
          if(d->startSeqRes == (-1))
             d->startSeqRes = seqPos;
 #ifdef DEBUG
          printf("Seqpos %d SeqRes %c DomRes %c\n",
-                seqPos, seqAln[alnPos], domAln[alnPos]);
+                seqPos, seqAln[alnPos], refAln[alnPos]);
 #endif
          d->lastSeqRes = seqPos;
          d->domSeq[domSeqPos++] = seq[seqPos];
@@ -1396,6 +1432,7 @@ contacts with chain %s\n",
                               if((pairedDomain != NULL) &&
                                  (pairedDomain->nAntigenChains < MAXANTIGEN))
                                  pairedDomain->antigenChains[pairedDomain->nAntigenChains++] = chain;
+                              goto break1;
                            }
                         }
                      }
@@ -1514,7 +1551,7 @@ void FlagHetAntigenChains(DOMAIN *domains, PDBSTRUCT *pdbs)
          for(r=c->residues; r!=NULL; NEXT(r))
          {
             /* If it isn't a water and it has more than 3 atoms         */
-            if(!ISWATER(r) && (CountResidueAtoms(r) > 3))
+            if(!ISWATER(r) && (CountResidueAtoms(r) >= MINHETATOMS))
             {
                /* Go through the antibody domains                       */
                for(d=domains; d!=NULL; NEXT(d))
@@ -1714,7 +1751,7 @@ BOOL IsNonPeptideHet(WHOLEPDB *wpdb, PDBRESIDUE *res)
       }
       nAtoms++;
    }
-   if((hasBackbone >= 3) || (!isAllHet) || (nAtoms <= 3))
+   if((hasBackbone >= 3) || (!isAllHet) || (nAtoms < MINHETATOMS))
       return(FALSE);
    
    /* Check it isn't just an ion                                        */

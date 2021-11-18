@@ -2,7 +2,8 @@
 ----
 
 - doesn't recognize chain I as an antibody (it has an NTer truncation)
-
+  NOW FIXED
+  
 The code in the UseSeqres branch is a start to fix this and reads the
 sequence from the SEQRES records. However it needs to sort out the
 correct offsets into the PDB linked list (assumed to be the same as
@@ -17,12 +18,12 @@ largely fixes this.
 
 - Note that chains H and I are still not paired presumably because of
   all the missing residues and the interface residues not being correctly
-  identified.
+  identified. NOW FIXED
 
 - Note that chain H finds chain I as an 'antigen' with 14 contacts and
   finds G with just 9 contacts. This is probably because of the
   problem with not correcting the CDR residue numbers based on the
-  alignment
+  alignment.  NOW FIXED
 
 
 1a6v
@@ -36,14 +37,16 @@ largely fixes this.
 5jor
 ----
 
-A good example where chains B/C are indicated as interacting with
-chain L as an antigen - it really is just touching the edge and
-shouldn't be listed as an antigen
+- A good example where chains B/C are indicated as interacting with
+  chain L as an antigen - it really is just touching the edge and
+  shouldn't be listed as an antigen
 
-This is also an example where the CDR residue numbers need to be
-corrected by the alignment
+- This is also an example where the CDR residue numbers need to be
+  corrected by the alignment NOW FIXED
 
 
+
+-----------------------------------------------------
 
 pdbabnum needs to take a flag to stop it changing the chain label
 
