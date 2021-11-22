@@ -1,4 +1,3 @@
-#define DEBUG_AG_CONTACTS 1
 /************************************************************************/
 /**
 
@@ -150,7 +149,7 @@ FILE *OpenSequenceDataFile(void);
 REAL CompareSeqs(char *theSeq, char *seq, char *align1, char *align2);
 void MaskAndAssignDomain(char *seq, PDBCHAIN *chain, char *bestMatch,
                          char *aln1, char *aln2, DOMAIN **pDomains);
-void SetChainType(DOMAIN *domain, char *header);
+void SetChainAsLightOrHeavy(DOMAIN *domain, char *header);
 void SetIFResidues(DOMAIN *domain, char *header, char *seqAln);
 void SetCDRResidues(DOMAIN *domain, char *header, char *seqAln);
 void PrintDomains(DOMAIN *domains);
@@ -634,7 +633,7 @@ BOOL CheckAndMask(char *seqresSeq, FILE *dbFp, PDBCHAIN *chain,
 /* Uses the label in the FASTA file to set the chain type as heavy
    or light
 */
-void SetChainType(DOMAIN *domain, char *fastaHeader)
+void SetChainAsLightOrHeavy(DOMAIN *domain, char *fastaHeader)
 {
    char *ptr;
    domain->chainType = '?';
@@ -854,9 +853,9 @@ void MaskAndAssignDomain(char *seq, PDBCHAIN *chain, char *fastaHeader,
    printf("REF: %s\n", refAln);
 #endif
 
-   SetChainType(d,   fastaHeader);
-   SetIFResidues(d,  fastaHeader, seqAln);
-   SetCDRResidues(d, fastaHeader, seqAln);
+   SetChainAsLightOrHeavy(d, fastaHeader);
+   SetIFResidues(d,          fastaHeader, seqAln);
+   SetCDRResidues(d,         fastaHeader, seqAln);
    
    for(seqPos=0, alnPos=0; seqPos<strlen(seqAln); seqPos++)
    {
