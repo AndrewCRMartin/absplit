@@ -1,3 +1,6 @@
+/* TODO:
+   WriteSEQRES needs to deal with chain labels for MODRES
+*/
 /************************************************************************/
 /**
 
@@ -90,8 +93,9 @@
 #define MAXCHAINS       80
 #define MAXCHAINLABEL   blMAXCHAINLABEL
 #define MAXHETANTIGEN   160
-#define CHAINTYPE_ATOM  (APTR)1
-#define CHAINTYPE_HET   (APTR)2
+#define CHAINTYPE_PROT  (APTR)1
+#define CHAINTYPE_NUCL  (APTR)2
+#define CHAINTYPE_HET   (APTR)3
 #define RES_WRITTEN_NO  (APTR)0
 #define RES_WRITTEN_YES (APTR)1
 
@@ -389,7 +393,7 @@ BOOL ProcessFile(WHOLEPDB *wpdb, char *infile, FILE *dataFp)
             printf("Ptr: %ld Type: %s\n", (ULONG)chain->start,
                    chain->start->record_type);
 #endif
-            if(chain->extras == CHAINTYPE_ATOM)
+            if(chain->extras == CHAINTYPE_PROT)
             {
                printf("\n***Handling chain: %s\n", chain->chain);
                domains = FindVHVLDomains(wpdb, chain, dataFp, domains);
@@ -428,7 +432,8 @@ void GetSequenceForChain(PDBCHAIN *chain, char *sequence)
    int        i=0;
    PDBRESIDUE *r;
 
-   if(chain->extras == CHAINTYPE_ATOM)
+   if((chain->extras == CHAINTYPE_PROT) ||
+      (chain->extras == CHAINTYPE_NUCL))
    {
       for(r=chain->residues; r!=NULL; NEXT(r))
       {
@@ -1081,8 +1086,25 @@ void WriteDomains(WHOLEPDB *wpdb, DOMAIN *domains, char *filestem)
 
          /* Assume not a complex                                        */
          complex[0] = '\0';
-         if(d->nAntigenChains)
-            strcpy(complex, "P");
+
+         for(i=0;i<d->nAntigenChains;i++)
+         {
+            if(d->antigenChains[i]->extras == CHAINTYPE_PROT)
+            {
+               strncat(complex, "P", 7-strlen(complex));
+               break;
+            }
+         }
+         
+         for(i=0;i<d->nAntigenChains;i++)
+         {
+            if(d->antigenChains[i]->extras == CHAINTYPE_NUCL)
+            {
+               strncat(complex, "N", 7-strlen(complex));
+               break;
+            }
+         }
+         
          if(d->nHetAntigen)
             strncat(complex, "H", 7-strlen(complex));
          
@@ -1267,7 +1289,22 @@ void SetChainAsAtomOrHetatm(PDBCHAIN *chains)
       {
          if(!strncmp(p->record_type, "ATOM  ", 6))
          {
-            c->extras = CHAINTYPE_ATOM;
+            if(!strncmp(p->resnam, "  U", 3) ||
+               !strncmp(p->resnam, "  A", 3) ||
+               !strncmp(p->resnam, "  C", 3) ||
+               !strncmp(p->resnam, "  G", 3) ||
+               !strncmp(p->resnam, " DT", 3) ||
+               !strncmp(p->resnam, " DA", 3) ||
+               !strncmp(p->resnam, " DC", 3) ||
+               !strncmp(p->resnam, " DG", 3))
+            {
+               c->extras = CHAINTYPE_NUCL;
+            }
+            else
+            {
+               c->extras = CHAINTYPE_PROT;
+            }
+            
             break;
          }
       }
@@ -1334,7 +1371,8 @@ BOOL CheckAntigenContacts(DOMAIN *domain, PDBSTRUCT *pdbs)
    /* Go through each of the ATOM chains                                */
    for(chain=pdbs->chains; chain!=NULL; NEXT(chain))
    {
-      if(chain->extras == CHAINTYPE_ATOM)
+      if((chain->extras == CHAINTYPE_PROT) ||
+         (chain->extras == CHAINTYPE_NUCL))
       {
          nContacts = 0;
          /* If this is not the chain for this domain or the paired domain,
@@ -1741,7 +1779,10 @@ BOOL IsNonPeptideHet(WHOLEPDB *wpdb, PDBRESIDUE *res)
          if(!strncmp(p->atnam, "N   ", 4) ||
             !strncmp(p->atnam, "CA  ", 4) ||
             !strncmp(p->atnam, "C   ", 4) ||
-            !strncmp(p->atnam, "O   ", 4))
+            !strncmp(p->atnam, "O   ", 4) ||
+            !strncmp(p->atnam, "P   ", 4) ||
+            !strncmp(p->atnam, "OP1 ", 4) ||
+            !strncmp(p->atnam, "OP2 ", 4))
             hasBackbone++;
       }
       else
@@ -1885,7 +1926,7 @@ void WriteSeqres(FILE *fp, WHOLEPDB *wpdb, DOMAIN *domain)
    {
       if(!strncmp(s->string, "MODRES", 6))
       {
-         fprintf(fp, "%s\n", s->string);
+         fprintf(fp, "%s", s->string);
       }
    }
    
