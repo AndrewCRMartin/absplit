@@ -30,27 +30,51 @@ done
 
 # Extract any HETATM footer, number the antibodies and add back the footer.
 # Finally renumber the atoms to reconstruct the MASTER and CONECT records
+badFile=0
 for file in ${stem}_*.fix
 do
     footer=`basename $file .fix`.foot
     $getfooter $file > $footer
 
-    $numberabpdb -k $file `basename $file .fix`.tmp
-    cat $footer >> `basename $file .fix`.tmp
-    pdbrenum -d `basename $file .fix`.tmp > `basename $file .fix`.kab
+    tmpfile=`basename $file .fix`.tmp
+
+    $numberabpdb -k $file $tmpfile
+    line1=`head -1 $tmpfile | awk '{print $1}'`
+    if [ "X$line1" == "XMASTER" ]; then
+        badFile=1
+    else
+       cat $footer >> `basename $file .fix`.tmp
+       pdbrenum -d `basename $file .fix`.tmp > `basename $file .fix`.kab
+    fi
     
-    $numberabpdb -c $file `basename $file .fix`.tmp
-    cat $footer >> `basename $file .fix`.tmp
-    pdbrenum -d `basename $file .fix`.tmp > `basename $file .fix`.cho
+    $numberabpdb -c $file $tmpfile
+    line1=`head -1 $tmpfile | awk '{print $1}'`
+    if [ "X$line1" == "XMASTER" ]; then
+        badFile=1
+    else
+        cat $footer >> `basename $file .fix`.tmp
+        pdbrenum -d `basename $file .fix`.tmp > `basename $file .fix`.cho
+    fi
     
-    $numberabpdb -m $file `basename $file .fix`.tmp
-    cat $footer >> `basename $file .fix`.tmp
-    pdbrenum -d `basename $file .fix`.tmp > `basename $file .fix`.mar
+    $numberabpdb -m $file $tmpfile
+    line1=`head -1 $tmpfile | awk '{print $1}'`
+    if [ "X$line1" == "XMASTER" ]; then
+        badFile=1
+    else
+        cat $footer >> `basename $file .fix`.tmp
+        pdbrenum -d `basename $file .fix`.tmp > `basename $file .fix`.mar
+    fi
     rm $footer
+
+    if [ $badFile == 1 ]; then
+        mv $file `basename $file .fix`.bad
+    else
+        rm $file
+    fi
 done
 
 # Cleanup
-rm ${stem}_*.fix
+#rm ${stem}_*.fix
 rm ${stem}_*.pdb
 rm ${stem}_*.tmp
 

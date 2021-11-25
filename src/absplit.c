@@ -74,13 +74,14 @@
 #define MAXBUFF         240
 #define HUGEBUFF        10000
 #define MAXSEQ          10000
-#define ABTHRESHOLD     0.5
+#define ABTHRESHOLD     0.45
 #define GAPOPENPENALTY  5
 #define GAPEXTPENALTY   2
 #define SCOREMATRIX     "BLOSUM62"
 #define MAXINTERFACE    20
 #define MAXCDRRES       160
 #define MAXRESID        16
+#define MINSEQLEN       50
 #define COFGDISTCUTSQ   1225.0 /* 35^2 - for possible VH/VL pairs       */
 #define INTDISTCUTSQ    400.0  /* 20^2 - for VH/VL interface contact    */
 #define CONTACTDISTSQ   36.0   /* 6^2  - for antigen contacts           */
@@ -179,6 +180,8 @@ char *blFixSequenceWholePDB(WHOLEPDB *wpdb, char **outChains,
                             BOOL ignoreSeqresForMissingChains,
                             BOOL upper, BOOL quiet, char *label);
 int TransferResnum(int refResnum, char *seqAln);
+int RealSeqLen(char *seq);
+
 
 
 /************************************************************************/
@@ -400,17 +403,26 @@ BOOL ProcessFile(WHOLEPDB *wpdb, char *infile, FILE *dataFp)
             }
          }
          
-         PairDomains(domains);
-
-         FlagProteinAntigens(domains, pdbs);
-         FlagHetAntigenChains(domains, pdbs);
-         FlagHetAntigenResidues(wpdb, domains, pdbs);
-
-         PrintDomains(domains);
-         WriteDomains(wpdb, domains, filestem);
-         
-         FREELIST(domains, DOMAIN);
-         blFreePDBStructure(pdbs);
+         if(domains != NULL)
+         {
+            PairDomains(domains);
+            
+            FlagProteinAntigens(domains, pdbs);
+            FlagHetAntigenChains(domains, pdbs);
+            FlagHetAntigenResidues(wpdb, domains, pdbs);
+            
+            PrintDomains(domains);
+            WriteDomains(wpdb, domains, filestem);
+            
+            FREELIST(domains, DOMAIN);
+            blFreePDBStructure(pdbs);
+         }
+         else
+         {
+            fprintf(stderr,"Error (abYsplit): no antibody domains \
+found\n");
+            return(FALSE);
+         }
       }
       else
       {
@@ -584,6 +596,21 @@ DOMAIN *FindVHVLDomains(WHOLEPDB *wpdb, PDBCHAIN *chain, FILE *dataFp,
 }
 
 /************************************************************************/
+int RealSeqLen(char *seq)
+{
+   char *chp;
+   int seqlen = 0;
+
+   for(chp=seq; *chp != '\0'; chp++)
+   {
+      if(*chp != 'X')
+         seqlen++;
+   }
+
+   return(seqlen);
+}
+
+/************************************************************************/
 BOOL CheckAndMask(char *seqresSeq, FILE *dbFp, PDBCHAIN *chain,
                   DOMAIN **pDomains)
 {
@@ -596,9 +623,12 @@ BOOL CheckAndMask(char *seqresSeq, FILE *dbFp, PDBCHAIN *chain,
    char        header[MAXBUFF+1];
    char        *refSeq = NULL;
    BOOL        found = FALSE;
-   rewind(dbFp);
+
+   if(RealSeqLen(seqresSeq) < MINSEQLEN)
+      return(FALSE);
 
    /* Find the best match in the reference sequences                    */
+   rewind(dbFp);
    while((refSeq = blReadFASTA(dbFp, header, MAXBUFF))!=NULL)
    {
       REAL score;
@@ -615,6 +645,10 @@ BOOL CheckAndMask(char *seqresSeq, FILE *dbFp, PDBCHAIN *chain,
    }
 
    /* If we found an antibody sequence                                  */
+#ifdef DEBUG
+   printf("MaxScore: %f\n", maxScore);
+#endif
+   
    if(maxScore > ABTHRESHOLD)
    {
       if(gVerbose)
@@ -1131,7 +1165,7 @@ void WriteDomains(WHOLEPDB *wpdb, DOMAIN *domains, char *filestem)
             fprintf(fp, remark950Domain);
             fprintf(fp, remark950Partner);
             fprintf(fp, remark950Antigen);
-            
+
             WriteSeqres(fp, wpdb, d);
 
             /* Write this domain                                        */
@@ -1827,6 +1861,8 @@ PDB *RelabelAntibodyChain(DOMAIN *domain, char *remark950)
 {
    PDB *p, *q;
    PDB *pdb = NULL;
+
+   remark950[0] = '\0';
    
    if(domain)
    {
@@ -1943,7 +1979,7 @@ void WriteSeqres(FILE *fp, WHOLEPDB *wpdb, DOMAIN *domain)
          }
       }
    }
-   
+
    /* Print SEQRES for the partner domain's chain                       */
    for(s=wpdb->header; s!=NULL; NEXT(s))
    {
