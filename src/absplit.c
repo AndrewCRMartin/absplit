@@ -146,7 +146,7 @@ void UsageDie(void);
 BOOL ProcessFile(WHOLEPDB *wpdb, char *infile, FILE *dataFp);
 DOMAIN *FindVHVLDomains(WHOLEPDB *wpdb, PDBCHAIN *chain, FILE *dataFp,
                         DOMAIN *domains);
-void GetSequenceForChain(PDBCHAIN *chain, char *sequence);
+void GetSequenceForChain(WHOLEPDB *wpdb, PDBCHAIN *chain, char *sequence);
 void ExePathName(char *str, BOOL pathonly);
 BOOL CheckAndMask(char *sequence, FILE *dataFp, PDBCHAIN *chain,
                   DOMAIN **pDomains);
@@ -181,6 +181,9 @@ char *blFixSequenceWholePDB(WHOLEPDB *wpdb, char **outChains,
                             BOOL upper, BOOL quiet, char *label);
 int TransferResnum(int refResnum, char *seqAln);
 int RealSeqLen(char *seq);
+BOOL IsStandardResidue(PDBRESIDUE *res);
+int FindLastAlignmentPosition(char *refAln);
+
 
 
 
@@ -372,7 +375,7 @@ BOOL ProcessFile(WHOLEPDB *wpdb, char *infile, FILE *dataFp)
       if((outChains = (char **)blArray2D(sizeof(char),
                                          MAXCHAINS,
                                          blMAXCHAINLABEL))==NULL)
-      {
+      {  /* TODO This could be the actual number of chains instead of MAXCHAINS */
          fprintf(stderr,"Error: No memory for outChains array\n");
          return(FALSE);
       }
@@ -439,7 +442,7 @@ found\n");
 
 
 /************************************************************************/
-void GetSequenceForChain(PDBCHAIN *chain, char *sequence)
+void GetSequenceForChain(WHOLEPDB *wpdb, PDBCHAIN *chain, char *sequence)
 {
    int        i=0;
    PDBRESIDUE *r;
@@ -449,7 +452,11 @@ void GetSequenceForChain(PDBCHAIN *chain, char *sequence)
    {
       for(r=chain->residues; r!=NULL; NEXT(r))
       {
+         if(IsStandardResidue(r))
          {
+#ifdef DEBUG
+            fprintf(stderr, "%s\n", r->resnam);
+#endif
             sequence[i++] = blThrone(r->resnam);
          }
       }
@@ -583,8 +590,8 @@ DOMAIN *FindVHVLDomains(WHOLEPDB *wpdb, PDBCHAIN *chain, FILE *dataFp,
    
 /*   GetSequenceForChainSeqres(wpdb, chain, sequence); */
    
-   GetSequenceForChain(chain, sequence);
-#ifdef DEBUG
+   GetSequenceForChain(wpdb, chain, sequence);
+#ifndef DEBUG
    printf("Chain: %s Sequence: %s\n", chain->chain, sequence);
 #endif
    while(TRUE)
@@ -645,8 +652,10 @@ BOOL CheckAndMask(char *seqresSeq, FILE *dbFp, PDBCHAIN *chain,
    }
 
    /* If we found an antibody sequence                                  */
-#ifdef DEBUG
-   printf("MaxScore: %f\n", maxScore);
+#ifndef DEBUG
+   printf("MaxScore : %f\n", maxScore);
+   printf("Sequence : %s\n", bestAlignSeqres);
+   printf("Reference: %s\n", bestAlignRef);
 #endif
    
    if(maxScore > ABTHRESHOLD)
@@ -851,9 +860,10 @@ PairsWithDomain: %d (Chain: %s)\n",
 void MaskAndAssignDomain(char *seq, PDBCHAIN *chain, char *fastaHeader,
                          char *seqAln, char *refAln, DOMAIN **pDomains)
 {
-   int    seqPos    = 0,
-          alnPos    = 0,
-          domSeqPos = 0;
+   int    seqPos     = 0,
+          alnPos     = 0,
+          domSeqPos  = 0,
+          lastAlnPos = 0;
    DOMAIN *d, *prevD;
 
    if(*pDomains == NULL)
@@ -892,19 +902,22 @@ void MaskAndAssignDomain(char *seq, PDBCHAIN *chain, char *fastaHeader,
    printf("REF: %s\n", refAln);
 #endif
 
+   lastAlnPos = FindLastAlignmentPosition(refAln);
+
    SetChainAsLightOrHeavy(d, fastaHeader);
    SetIFResidues(d,          fastaHeader, seqAln);
    SetCDRResidues(d,         fastaHeader, seqAln);
    
-   for(seqPos=0, alnPos=0; seqPos<strlen(seqAln); seqPos++)
+   for(seqPos=0, alnPos=0;
+       ((seqPos<strlen(seqAln)) && (alnPos < lastAlnPos));
+       seqPos++)
    {
       while(seqAln[alnPos] == '-')  /* Skip insertions                  */
       {
          alnPos++;
       }
       
-      if((refAln[alnPos] != '-') &&
-         (refAln[alnPos] != '\0'))
+      if(refAln[alnPos] != '\0')
       {
          if(d->startSeqRes == (-1))
             d->startSeqRes = seqPos;
@@ -1597,7 +1610,7 @@ void GetSequenceForChainSeqres(WHOLEPDB *wpdb, PDBCHAIN *chain,
    }
    else
    {
-      GetSequenceForChain(chain, sequence);
+      GetSequenceForChain(wpdb, chain, sequence);
    }
 }
    
@@ -1856,6 +1869,43 @@ BOOL IsNonPeptideHet(WHOLEPDB *wpdb, PDBRESIDUE *res)
 }
 
 
+BOOL IsStandardResidue(PDBRESIDUE *res)
+{
+   PDB        *p;
+   int        hasBackbone = 0;
+   BOOL       isAllHet    = TRUE;
+   
+   /* Step through atoms in this residue                                */
+   for(p=res->start; p!=res->stop; NEXT(p))
+   {
+      /* As soon as we find an ATOM record it's standard                */
+      if(!strncmp(p->record_type, "ATOM  ", 6))
+         return(TRUE);
+      
+      if(!strncmp(p->record_type, "HETATM", 6))
+      {
+         if(!strncmp(p->atnam, "N   ", 4) ||
+            !strncmp(p->atnam, "CA  ", 4) ||
+            !strncmp(p->atnam, "C   ", 4) ||
+            !strncmp(p->atnam, "O   ", 4) ||
+            !strncmp(p->atnam, "P   ", 4) ||
+            !strncmp(p->atnam, "OP1 ", 4) ||
+            !strncmp(p->atnam, "OP2 ", 4))
+            hasBackbone++;
+      }
+      else
+      {
+         isAllHet = FALSE;
+      }
+   }
+
+   if((hasBackbone <= 2) || (isAllHet))
+      return(FALSE);
+   
+   return(TRUE);
+}
+
+
 
 PDB *RelabelAntibodyChain(DOMAIN *domain, char *remark950)
 {
@@ -2111,4 +2161,14 @@ char *blFixSequenceWholePDB(WHOLEPDB *wpdb, char **outChains,
    return(fixedSequence);
 }
 
+
+int FindLastAlignmentPosition(char *refAln)
+{
+   int pos;
+
+   for(pos = strlen(refAln) - 1;
+       ((pos >= 0) && (refAln[pos] == '-'));
+       pos--);
+   return(pos);
+}
 
