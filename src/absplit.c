@@ -155,8 +155,8 @@ REAL CompareSeqs(char *theSeq, char *seq, char *align1, char *align2);
 void MaskAndAssignDomain(char *seq, PDBCHAIN *chain, char *bestMatch,
                          char *aln1, char *aln2, DOMAIN **pDomains);
 void SetChainAsLightOrHeavy(DOMAIN *domain, char *header);
-void SetIFResidues(DOMAIN *domain, char *header, char *seqAln);
-void SetCDRResidues(DOMAIN *domain, char *header, char *seqAln);
+void SetIFResidues(DOMAIN *domain, char *header, char *seqAln, char *refAln);
+void SetCDRResidues(DOMAIN *domain, char *header, char *seqAln, char *refAln);
 void PrintDomains(DOMAIN *domains);
 void SetDomainBoundaries(DOMAIN *domain);
 void PairDomains(DOMAIN *domains);
@@ -179,10 +179,13 @@ int CountResidueAtoms(PDBRESIDUE *res);
 char *blFixSequenceWholePDB(WHOLEPDB *wpdb, char **outChains,
                             BOOL ignoreSeqresForMissingChains,
                             BOOL upper, BOOL quiet, char *label);
-int TransferResnum(int refResnum, char *seqAln);
+int TransferResnum(int refResnum, char *seqAln, char *refAln);
 int RealSeqLen(char *seq);
 BOOL IsStandardResidue(PDBRESIDUE *res);
 int FindLastAlignmentPosition(char *refAln);
+int IsKeyResidue(int seqPos, int *refKeys,
+                 char *seqAln, char *refAln);
+
 
 
 
@@ -610,7 +613,7 @@ int RealSeqLen(char *seq)
 
    for(chp=seq; *chp != '\0'; chp++)
    {
-      if(*chp != 'X')
+      if((*chp != 'X') && (*chp != '-'))
          seqlen++;
    }
 
@@ -699,13 +702,17 @@ void SetChainAsLightOrHeavy(DOMAIN *domain, char *fastaHeader)
    to the PDB sequential number instead of what is in the FASTA file
    header
 */
-void SetIFResidues(DOMAIN *domain, char *fastaHeader, char *seqAln)
+void SetIFResidues(DOMAIN *domain, char *fastaHeader, char *seqAln,
+                   char *refAln)
 {
    char *ptr1, *ptr2, *bar;
    char headerCopy[MAXBUFF+1];
    int  refResnum,
-        atomResnum;
-   
+        seqResnum,
+        nIFRes = 0,
+        IFResidues[MAXINTERFACE];
+   int  seqLen = RealSeqLen(seqAln);
+      
    domain->nInterface = 0;
    strncpy(headerCopy, fastaHeader, MAXBUFF);
    headerCopy[MAXBUFF] = '\0';
@@ -721,9 +728,7 @@ void SetIFResidues(DOMAIN *domain, char *fastaHeader, char *seqAln)
 
          *ptr2 = '\0';
          sscanf(ptr1, "%d", &refResnum);
-         atomResnum = TransferResnum(refResnum, seqAln);
-         if(atomResnum > 0)
-            domain->interface[domain->nInterface++] = atomResnum;
+         IFResidues[nIFRes++] = refResnum;
          ptr1  = ptr2+1;
       }
       
@@ -731,20 +736,28 @@ void SetIFResidues(DOMAIN *domain, char *fastaHeader, char *seqAln)
       {
          *ptr2 = '\0';
          sscanf(ptr1, "%d", &refResnum);
-         atomResnum = TransferResnum(refResnum, seqAln);
-         if(atomResnum > 0)
-            domain->interface[domain->nInterface++] = atomResnum;
+         IFResidues[nIFRes++] = refResnum;
+      }
+      IFResidues[nIFRes++] = -1;
+      for(seqResnum=1; seqResnum<=seqLen; seqResnum++)
+      {
+         if(IsKeyResidue(seqResnum, IFResidues, seqAln, refAln))
+            domain->interface[domain->nInterface++] = seqResnum;
       }
    }
 }
 
 /************************************************************************/
-void SetCDRResidues(DOMAIN *domain, char *fastaHeader, char *seqAln)
+void SetCDRResidues(DOMAIN *domain, char *fastaHeader, char *seqAln,
+                    char *refAln)
 {
    char *ptr1, *ptr2,
         headerCopy[MAXBUFF+1];
    int  refResnum,
-        atomResnum;
+        seqResnum,
+        nCDRRes = 0,
+        CDRResidues[MAXCDRRES];
+   int  seqLen = RealSeqLen(seqAln);
 
    domain->nCDRRes = 0;
 
@@ -762,9 +775,7 @@ void SetCDRResidues(DOMAIN *domain, char *fastaHeader, char *seqAln)
          {
             *ptr2 = '\0';
             sscanf(ptr1, "%d", &refResnum);
-            atomResnum = TransferResnum(refResnum, seqAln);
-            if(atomResnum > 0)
-               domain->CDRRes[domain->nCDRRes++] = atomResnum;
+            CDRResidues[nCDRRes++] = refResnum;
             ptr1=ptr2+1;
          }
       
@@ -772,17 +783,57 @@ void SetCDRResidues(DOMAIN *domain, char *fastaHeader, char *seqAln)
          {
             *ptr2 = '\0';
             sscanf(ptr1, "%d", &refResnum);
-            atomResnum = TransferResnum(refResnum, seqAln);
-            if(atomResnum > 0)
-               domain->CDRRes[domain->nCDRRes++] = atomResnum;
+            CDRResidues[nCDRRes++] = refResnum;
+         }
+         CDRResidues[nCDRRes] = -1;
+
+         for(seqResnum=1; seqResnum<=seqLen; seqResnum++)
+         {
+            if(IsKeyResidue(seqResnum, CDRResidues, seqAln, refAln))
+               domain->CDRRes[domain->nCDRRes++] = seqResnum;
          }
       }
    }
 }
 
 
+/* seqPos numbered from 1 */
+int IsKeyResidue(int seqPos, int *refKeys,
+                 char *seqAln, char *refAln)
+{
+   int i, count, alnPos=0, refPos;
+   
+   /* Correct seqPos to the position in the alignment (numbered from 1) */
+   for(i=0, count=0; i<strlen(seqAln); i++)
+   {
+      if(seqAln[i] != '-')
+         count++;
+      if(count == seqPos)
+      {
+         alnPos = i+1;
+         break;
+      }
+   }
+
+   /* Now count to this position in the reference sequence              */
+   for(i=0, refPos=0; (i<alnPos && i<strlen(seqAln)); i++)
+   {
+      if(refAln[i] != '-')
+         refPos++;
+   }
+
+   /* Now see if this position is in the list of key reference positions*/
+   for(i=0; refKeys[i] >=0; i++)
+   {
+      if(refPos == refKeys[i])
+         return(refPos);
+   }
+   
+   return(0);
+}
+
 /************************************************************************/
-int TransferResnum(int refResnum, char *seqAln)
+int TransferResnum(int refResnum, char *seqAln, char *refAln)
 {
    int atomResnum = 0,
        i;
@@ -905,8 +956,8 @@ void MaskAndAssignDomain(char *seq, PDBCHAIN *chain, char *fastaHeader,
    lastAlnPos = FindLastAlignmentPosition(refAln);
 
    SetChainAsLightOrHeavy(d, fastaHeader);
-   SetIFResidues(d,          fastaHeader, seqAln);
-   SetCDRResidues(d,         fastaHeader, seqAln);
+   SetIFResidues(d,          fastaHeader, seqAln, refAln);
+   SetCDRResidues(d,         fastaHeader, seqAln, refAln);
    
    for(seqPos=0, alnPos=0;
        ((seqPos<strlen(seqAln)) && (alnPos < lastAlnPos));
