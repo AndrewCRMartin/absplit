@@ -32,46 +32,75 @@ sub MergeClusters
     my ($hLightClusters, $hHeavyClusters) = @_;
 
     my %clusters = ();
-    
-    foreach my $key (keys %$hLightClusters)
+    my @deleted  = ();
+
+    # Create clusters where they span heavy and light
+    foreach my $key (sort keys %$hLightClusters)
     {
         if(defined($$hHeavyClusters{$key}))
         {
-            foreach my $member (@{$$hLightClusters{$key}})
+            foreach my $member (sort @{$$hLightClusters{$key}})
             {
                 if(inArray($member, @{$$hHeavyClusters{$key}}))
                 {
                     push(@{$clusters{$key}}, $member);
                     delete ($$hHeavyClusters{$member});
                     delete ($$hLightClusters{$member});
+                    push(@deleted, $member);
                 }
             }
             delete ($$hHeavyClusters{$key});
             delete ($$hLightClusters{$key});
+            push(@deleted, $key);
         }
     }
 
-    foreach my $key (keys %$hLightClusters)
-    {
-        foreach my $member (@{$$hLightClusters{$key}})
-        {
-            push(@{$clusters{$key}}, $member);
-            delete ($$hLightClusters{$member});
-        }
-        delete ($$hLightClusters{$key});
-    }    
+    AddSingleChainClusters($hLightClusters, \%clusters, \@deleted);
+    AddSingleChainClusters($hHeavyClusters, \%clusters, \@deleted);
 
-    foreach my $key (keys %$hHeavyClusters)
-    {
-        foreach my $member (@{$$hHeavyClusters{$key}})
-        {
-            push(@{$clusters{$key}}, $member);
-            delete ($$hHeavyClusters{$member});
-        }
-        delete ($$hHeavyClusters{$key});
-    }
+    AddSingletons($hLightClusters, \%clusters, \@deleted);
+    AddSingletons($hHeavyClusters, \%clusters, \@deleted);
 
     return(%clusters);
+}
+
+sub AddSingletons
+{
+    my($hChainClusters, $hClusters, $aDeleted) = @_;
+    foreach my $key (sort keys %$hChainClusters)
+    {
+        if(!defined($$hClusters{$key}))
+        {
+            $$hClusters{$key} = [];
+        }
+    }
+    
+}
+
+sub AddSingleChainClusters
+{
+    my($hChainClusters, $hClusters, $aDeleted) = @_;
+
+    foreach my $key (sort keys %$hChainClusters)
+    {
+        my $hasMembers = 0;
+        foreach my $member (sort @{$$hChainClusters{$key}})
+        {
+            if(!inArray($member, @$aDeleted))
+            {
+                push(@{$$hClusters{$key}}, $member);
+                delete $$hClusters{$member};
+                $hasMembers = 1;
+            }
+            delete ($$hChainClusters{$member});
+            push(@$aDeleted, $member);
+        }
+        if($hasMembers)
+        {
+            delete ($$hChainClusters{$key});
+            push(@$aDeleted, $key);
+        }
+    }
 }
 
 sub PrintClusters
