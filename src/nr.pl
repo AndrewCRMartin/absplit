@@ -1,5 +1,7 @@
 #!/usr/bin/perl
 
+use strict;
+
 $::gCDHit = '../dataprep/cdhit/cd-hit';
 
 my $fastaDir = shift @ARGV;
@@ -20,12 +22,57 @@ my %heavyClusters = Cluster($heavyFAA, $tmpDir, 'H');
 # These are now indexed by each ID and contain an array of other members
 # of the cluster
 
-PrintClusters(%lightClusters);
+my %clusters = MergeClusters(\%lightClusters, \%heavyClusters);
+
+PrintClusters(%clusters);
     
-# my @clusters = MergeClusters(\@lightClusters, \@heavyClusters);
 
+sub MergeClusters
+{
+    my ($hLightClusters, $hHeavyClusters) = @_;
 
+    my %clusters = ();
+    
+    foreach my $key (keys %$hLightClusters)
+    {
+        if(defined($$hHeavyClusters{$key}))
+        {
+            foreach my $member (@{$$hLightClusters{$key}})
+            {
+                if(inArray($member, @{$$hHeavyClusters{$key}}))
+                {
+                    push(@{$clusters{$key}}, $member);
+                    delete ($$hHeavyClusters{$member});
+                    delete ($$hLightClusters{$member});
+                }
+            }
+            delete ($$hHeavyClusters{$key});
+            delete ($$hLightClusters{$key});
+        }
+    }
 
+    foreach my $key (keys %$hLightClusters)
+    {
+        foreach my $member (@{$$hLightClusters{$key}})
+        {
+            push(@{$clusters{$key}}, $member);
+            delete ($$hLightClusters{$member});
+        }
+        delete ($$hLightClusters{$key});
+    }    
+
+    foreach my $key (keys %$hHeavyClusters)
+    {
+        foreach my $member (@{$$hHeavyClusters{$key}})
+        {
+            push(@{$clusters{$key}}, $member);
+            delete ($$hHeavyClusters{$member});
+        }
+        delete ($$hHeavyClusters{$key});
+    }
+
+    return(%clusters);
+}
 
 sub PrintClusters
 {
@@ -33,14 +80,24 @@ sub PrintClusters
     foreach my $key (keys %clusters)
     {
         my $i = 0;
-        print "$key : \n";
-        foreach my $member (@{$clusters{$key}})
+        print "$key";
+        foreach my $member (sort @{$clusters{$key}})
         {
-            print "   $i $member\n";
+            print " $member";
             $i++;
         }
         print "\n";
     }
+}
+
+sub inArray
+{
+    my($value, @array) = @_;
+    foreach my $item (@array)
+    {
+        return(1) if($item eq $value);
+    }
+    return(0);
 }
 
 sub Cluster
@@ -88,7 +145,7 @@ sub ReadClusters
                 my $member = $fields[2];
                 $member =~ s/^\>//;
                 $member =~ s/\|.*//;
-                print "Storing $member\n";
+#                print "Storing $member\n";
                 push @members, $member;
             }
         }
