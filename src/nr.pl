@@ -2,7 +2,7 @@
 
 use strict;
 
-$::gCDHit = '../../dataprep/cdhit/cd-hit';
+$::gCDHit = '../dataprep/cdhit/cd-hit';
 
 my $fastaDir = shift @ARGV;
 my $tmpDir   = MakeTempDir();
