@@ -7,33 +7,139 @@ $::gCDHit = '../../dataprep/cdhit/cd-hit';
 my $fastaDir = shift @ARGV;
 my $tmpDir   = MakeTempDir();
 Die("Cannot create temporary directory $tmpDir") if($tmpDir eq '');
+my $faaFile = "$tmpDir/all.faa";
 
-my $lightFAA = MakeFAA($fastaDir, $tmpDir, 'L');
-my $heavyFAA = MakeFAA($fastaDir, $tmpDir, 'H');
-if(($lightFAA eq '') || ($heavyFAA eq ''))
-{
-    Die("Unable to read FASTA files from $fastaDir");
-}
-
+CombineFAA($fastaDir, $faaFile);
 print "Temp dir: $tmpDir\n";
+Cluster($faaFile, $tmpDir);
 
-my @lightClusters = Cluster($lightFAA, $tmpDir, 'L');
-my @heavyClusters = Cluster($heavyFAA, $tmpDir, 'H');
-# These are now indexed by each ID and contain an array of other members
-# of the cluster
-
-my %clusters = MergeClusters(\%lightClusters, \%heavyClusters);
-
-PrintClusters(%clusters);
-    
 
 sub Cluster
 {
-    my($faaFile, $tmpDir, $chain) = @_;
-    `$::gCDHit -c 1.0 -i $faaFile -o $tmpDir/$chain.faa`;
-    my $clsFile = "$tmpDir/$chain.faa.clstr";
+    my($faaFile, $tmpDir) = @_;
+    `$::gCDHit -c 1.0 -i $faaFile -o $tmpDir/clusters.faa`;
+    my $clsFile = "$tmpDir/clusters.faa.clstr";
     my %clusters = ReadClusters($clsFile);
 }
+
+
+
+
+sub CombineFAA
+{
+    my($faaDir, $outFile) = @_;
+    
+    if(opendir(my $fpDir, $faaDir))
+    {
+        if(open(my $fpOut, '>', $outFile))
+        {
+            my @files = grep /\.faa/, readdir($fpDir);
+            foreach my $file (@files)
+            {
+                ProcessFASTAFile($fpOut, "$faaDir/$file");
+            }
+            close($fpOut);
+        }
+        else
+        {
+            printf STDERR "Error: Cannot write combined .faa file ($outFile)\n";
+            exit 1;
+        }
+        closedir($fpDir);
+    }
+    else
+    {
+        printf STDERR "Error: Cannot open directory of .faa files ($faaDir)\n";
+        exit 1;
+    }
+}
+
+sub ProcessFASTAFile
+{
+    my($fpOut, $file) = @_;
+
+    if(open(my $fp, '<', $file))
+    {
+        my $header = '';
+        my $seq1   = '';
+        my $seq2   = '';
+        my $line   = 0;
+        while(<$fp>)
+        {
+            chomp;
+            if($line == 0)
+            {
+                $header = $_;
+            }
+            elsif($line == 1)
+            {
+                $seq1 = $_;
+            }
+            elsif($line == 2)
+            {
+                $seq2 = $_;
+            }
+            $line++;
+        }
+        close $fp;
+        my $id = $header;
+        $id =~ s/\|.*$//;
+        if($seq1 ne '')
+        {
+            print $fpOut "${id}_1\n";
+            print $fpOut "$seq1\n";
+        }
+        if($seq2 ne '')
+        {
+            print $fpOut "${id}_2\n";
+            print $fpOut "$seq2\n";
+        }
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 sub ReadClusters

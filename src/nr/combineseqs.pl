@@ -9,7 +9,7 @@ if(opendir(my $fpDir, $dir))
     my @files = grep /\.faa/, readdir($fpDir);
     foreach my $file (@files)
     {
-        ProcessFile($file);
+        ProcessFile("$dir/$file");
     }
     closedir($fpDir);
 }
@@ -29,7 +29,7 @@ sub ProcessFile
         my $seq1   = '';
         my $seq2   = '';
         my $line   = 0;
-        while(<>)
+        while(<$fp>)
         {
             chomp;
             if($line == 0)
@@ -51,12 +51,12 @@ sub ProcessFile
         $id =~ s/\|.*$//;
         if($seq1 ne '')
         {
-            print ">${id}_1\n";
+            print "${id}_1\n";
             print "$seq1\n";
         }
         if($seq2 ne '')
         {
-            print ">${id}_2\n";
+            print "${id}_2\n";
             print "$seq2\n";
         }
     }
