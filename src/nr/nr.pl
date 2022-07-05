@@ -3,14 +3,14 @@
 use strict;
 
 
-my $clsFile = "./t/clusters.faa.clstr";
-    my @clusters = ReadClusters($clsFile);
-    foreach my $cluster (@clusters)
-    {
-        print "$cluster\n";
-    }
-
-exit 0;
+#my $clsFile = "./t/clusters.faa.clstr";
+#    my @clusters = ReadClusters($clsFile);
+#    foreach my $cluster (@clusters)
+#    {
+#        print "$cluster\n";
+#    }
+#
+#exit 0;
 
 $::gCDHit = '../../dataprep/cdhit/cd-hit';
 
