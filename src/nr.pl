@@ -1,152 +1,181 @@
-#!/usr/bin/perl
+#!/usr/bin/perl -s
 
 use strict;
 
-$::gCDHit = '../dataprep/cdhit/cd-hit';
+$::gCDHit = '../../dataprep/cdhit/cd-hit';
 
 my $fastaDir = shift @ARGV;
 my $tmpDir   = MakeTempDir();
 Die("Cannot create temporary directory $tmpDir") if($tmpDir eq '');
+my $faaFile = "$tmpDir/all.faa";
 
-my $lightFAA = MakeFAA($fastaDir, $tmpDir, 'L');
-my $heavyFAA = MakeFAA($fastaDir, $tmpDir, 'H');
-if(($lightFAA eq '') || ($heavyFAA eq ''))
+CombineAbsplitFastaFiles($fastaDir, $faaFile);
+print "Temp dir: $tmpDir\n" if(defined($::d));
+my $sequenceClusterFile = ClusterSequences($faaFile, $tmpDir);
+my @abClusters = CreateFinalAntibodyClusters($sequenceClusterFile);
+print "# Free Antibody:Complexed Antibody\n";
+foreach my $abCluster (@abClusters)
 {
-    Die("Unable to read FASTA files from $fastaDir");
+    my $reordered = Reorder($abCluster);
+    print "$reordered\n";
 }
 
-print "Temp dir: $tmpDir\n";
+unlink($tmpDir) if(!defined($::d));
 
-my %lightClusters = Cluster($lightFAA, $tmpDir, 'L');
-my %heavyClusters = Cluster($heavyFAA, $tmpDir, 'H');
-# These are now indexed by each ID and contain an array of other members
-# of the cluster
+#-----------------------------------------------------------------------
+sub Reorder
+{
+    my($cluster) = @_;
+    my $debug = '';
 
-my %clusters = MergeClusters(\%lightClusters, \%heavyClusters);
+    # If we have the debugging line numbers, split them off
+    if($cluster =~ /(.*)\s*:\s*(.*)/)
+    {
+        $debug   = $1;
+        $cluster = $2;
+    }
 
-PrintClusters(%clusters);
+    # Split into individual fields
+    my @items = split(/\s+/, $cluster);
+
+    # Reassemble into separate free and complex lists
+    my @free = ();
+    my @complexed = ();
+    for my $item (@items)
+    {
+        if($item =~ /\d$/) # ID ends with a number, so not a complex
+        {
+            push @free, $item;
+        }
+        else
+        {
+            push @complexed, $item;
+        }
+    }
+
+    # Assemble the final description
+    my $result = '';
+    if($debug ne '')
+    {
+        $result = "$debug:";
+    }
+    $result .= join(',',@free);
+    $result .= ':';
+    $result .= join(',',@complexed);
     
-
-sub MergeClusters
-{
-    my ($hLightClusters, $hHeavyClusters) = @_;
-
-    my %clusters = ();
-    my @deleted  = ();
-
-    # Create clusters where they span heavy and light
-    foreach my $key (sort keys %$hLightClusters)
-    {
-        if(defined($$hHeavyClusters{$key}))
-        {
-            foreach my $member (sort @{$$hLightClusters{$key}})
-            {
-                if(inArray($member, @{$$hHeavyClusters{$key}}))
-                {
-                    push(@{$clusters{$key}}, $member);
-                    delete ($$hHeavyClusters{$member});
-                    delete ($$hLightClusters{$member});
-                    push(@deleted, $member);
-                }
-            }
-            delete ($$hHeavyClusters{$key});
-            delete ($$hLightClusters{$key});
-            push(@deleted, $key);
-        }
-    }
-
-    AddSingleChainClusters($hLightClusters, \%clusters, \@deleted);
-    AddSingleChainClusters($hHeavyClusters, \%clusters, \@deleted);
-
-    AddSingletons($hLightClusters, \%clusters, \@deleted);
-    AddSingletons($hHeavyClusters, \%clusters, \@deleted);
-
-    return(%clusters);
+    return($result);
 }
 
-sub AddSingletons
+
+#-----------------------------------------------------------------------
+sub ClusterSequences
 {
-    my($hChainClusters, $hClusters, $aDeleted) = @_;
-    foreach my $key (sort keys %$hChainClusters)
+    my($faaFile, $tmpDir) = @_;
+    `$::gCDHit -c 1.0 -i $faaFile -o $tmpDir/clusters.faa`;
+    my $CDHitClsFile = "$tmpDir/clusters.faa.clstr";
+    my @clusters = ReadCDHitClusters($CDHitClsFile);
+
+    my $clsFile = "$tmpDir/seqClusters.dat";
+    if(open(my $clsFp, '>', $clsFile))
     {
-        if(!defined($$hClusters{$key}))
+        foreach my $cluster (@clusters)
         {
-            $$hClusters{$key} = [];
+            print $clsFp "$cluster\n";
         }
+        close $clsFp;
     }
+    else
+    {
+        Die("Cannot write sequence cluster file $clsFile");
+    }
+
+    return($clsFile);
+}
+
+
+#-----------------------------------------------------------------------
+sub CombineAbsplitFastaFiles
+{
+    my($faaDir, $outFile) = @_;
     
-}
-
-sub AddSingleChainClusters
-{
-    my($hChainClusters, $hClusters, $aDeleted) = @_;
-
-    foreach my $key (sort keys %$hChainClusters)
+    if(opendir(my $fpDir, $faaDir))
     {
-        my $hasMembers = 0;
-        if(defined($$hChainClusters{$key}))
+        if(open(my $fpOut, '>', $outFile))
         {
-            foreach my $member (sort @{$$hChainClusters{$key}})
+            my @files = grep /\.faa/, readdir($fpDir);
+            foreach my $file (@files)
             {
-                if(!inArray($member, @$aDeleted))
-                {
-                    push(@{$$hClusters{$key}}, $member);
-                    delete $$hClusters{$member};
-                    $hasMembers = 1;
-                }
-                delete ($$hChainClusters{$member});
-                push(@$aDeleted, $member);
+                ProcessAbsplitFastaFile($fpOut, "$faaDir/$file");
             }
+            close($fpOut);
         }
-        if($hasMembers)
+        else
         {
-            delete ($$hChainClusters{$key});
-            push(@$aDeleted, $key);
+            printf STDERR "Error: Cannot write combined .faa file ($outFile)\n";
+            exit 1;
         }
+        closedir($fpDir);
+    }
+    else
+    {
+        printf STDERR "Error: Cannot open directory of .faa files ($faaDir)\n";
+        exit 1;
     }
 }
 
-sub PrintClusters
+
+#-----------------------------------------------------------------------
+sub ProcessAbsplitFastaFile
 {
-    my(%clusters) = @_;
-    foreach my $key (keys %clusters)
+    my($fpOut, $file) = @_;
+
+    if(open(my $fp, '<', $file))
     {
-        my $i = 0;
-        print "$key";
-        foreach my $member (sort @{$clusters{$key}})
+        my $header = '';
+        my $seq1   = '';
+        my $seq2   = '';
+        my $line   = 0;
+        while(<$fp>)
         {
-            print " $member";
-            $i++;
+            chomp;
+            if($line == 0)
+            {
+                $header = $_;
+            }
+            elsif($line == 1)
+            {
+                $seq1 = $_;
+            }
+            elsif($line == 2)
+            {
+                $seq2 = $_;
+            }
+            $line++;
         }
-        print "\n";
+        close $fp;
+        my $id = $header;
+        $id =~ s/\|.*$//;
+        if($seq1 ne '')
+        {
+            print $fpOut "${id}_1\n";
+            print $fpOut "$seq1\n";
+        }
+        if($seq2 ne '')
+        {
+            print $fpOut "${id}_2\n";
+            print $fpOut "$seq2\n";
+        }
     }
 }
 
-sub inArray
-{
-    my($value, @array) = @_;
-    foreach my $item (@array)
-    {
-        return(1) if($item eq $value);
-    }
-    return(0);
-}
 
-sub Cluster
-{
-    my($faaFile, $tmpDir, $chain) = @_;
-    `$::gCDHit -c 1.0 -i $faaFile -o $tmpDir/$chain.faa`;
-    my $clsFile = "$tmpDir/$chain.faa.clstr";
-    my %clusters = ReadClusters($clsFile);
-}
-
-
-sub ReadClusters
+#-----------------------------------------------------------------------
+sub ReadCDHitClusters
 {
     my ($clsFile) = @_;
-    my %clusters = ();
-    my @members  = ();
+    my @clusters = ();
     my $index    = 0;
+    my @members  = ();
 
     if(open(my $fp, '<', $clsFile))
     {
@@ -157,17 +186,8 @@ sub ReadClusters
             {
                 if(scalar(@members))
                 {
-                    foreach my $key (@members)
-                    {
-                        $index = 0;
-                        foreach my $member (@members)
-                        {
-                            if($member ne $key)
-                            {
-                                $clusters{$key}[$index++] = $member;
-                            }
-                        }
-                    }
+                    my $output = join(' ', @members);
+                    push @clusters, $output;
                 }
                 @members = ();
             }
@@ -176,8 +196,8 @@ sub ReadClusters
                 my @fields = split;
                 my $member = $fields[2];
                 $member =~ s/^\>//;
-                $member =~ s/\|.*//;
-#                print "Storing $member\n";
+                $member =~ s/\.\.\..*//;
+                print STDERR "Storing $member\n" if(defined($::d));
                 push @members, $member;
             }
         }
@@ -186,74 +206,15 @@ sub ReadClusters
         # and the last one
         if(scalar(@members))
         {
-            foreach my $key (@members)
-            {
-                $index = 0;
-                foreach my $member (@members)
-                {
-                    if($member ne $key)
-                    {
-                        $clusters{$key}[$index++] = $member;
-                    }
-                }
-            }
+            my $output = join(' ', @members);
+            push @clusters, $output;
         }
     }
-    return(%clusters);
+    return(@clusters);
 }
 
-sub MakeFAA
-{
-    my($fastaDir, $tmpDir, $chain) = @_;
 
-    my $outFile = "$tmpDir/all_${chain}.faa";
-
-    if(open(my $fh, '>', $outFile))
-    {
-        if(opendir(my $fd, $fastaDir))
-        {
-            my @files = grep /\.faa/, readdir($fd);
-            closedir($fd);
-            foreach my $inFile (@files)
-            {
-                my $content = GetLorH("$fastaDir/$inFile", $chain);
-                print $fh $content;
-            }
-        }
-        else
-        {
-            return('');
-        }
-        close($fh);
-    }
-    else
-    {
-        return('');
-    }
-    return($outFile);
-}
-
-sub GetLorH
-{
-    my($inFile, $chain) = @_;
-    my $content = '';
-    if(open(my $fp, '<', $inFile))
-    {
-        my $header = <$fp>;
-        my $light  = <$fp>;
-        my $heavy  = <$fp>;
-        close $fp;
-
-        $header =~ s/L_H\s*$/$chain/;
-        $content = "$header\n";
-        my $sequence = ($chain eq 'L')?$light:$heavy;
-        $sequence =~ s/\s//g;
-        return('') if($sequence eq '');
-        $content .= "$sequence\n"; 
-    }
-    return($content);
-}
-
+#-----------------------------------------------------------------------
 sub Die
 {
     my($msg) = @_;
@@ -261,6 +222,8 @@ sub Die
     exit 1;
 }
 
+
+#-----------------------------------------------------------------------
 sub MakeTempDir
 {
     my $tmpDir = "/var/tmp/abdb" . $$ . time();
@@ -269,4 +232,139 @@ sub MakeTempDir
     return ($tmpDir);
 }
 
+
+#-----------------------------------------------------------------------
+sub CreateFinalAntibodyClusters
+{
+    my ($seqClusFile) = @_;
+    
+    my @data       = ();
+    my @clusters   = ();
+    my @scClusters = ();
+    my @results    = ();
+
+    if(open(my $fp, '<', $seqClusFile))
+    {
+        while(<$fp>)
+        {
+            chomp;
+            my(@ids) = split;
+            push @data, \@ids;
+        }
+        close($fp);
+    }
+    else
+    {
+        Die("Cannot read sequence cluster file $seqClusFile\n");
+    }
+
+    my $row = 0;
+    foreach my $aRow (@data)
+    {
+        while(scalar(@{$aRow}))
+        {
+            # Take the last item from this row
+            my $item = pop(@$aRow);
+            # Construct the name of its partner
+            my ($partner, $stem) = GetPartnerName($item);
+            # Find which row the partner is in
+            my $partnerRow = FindPartnerRow($partner, @data);
+            print("$item $partner $partnerRow\n") if(defined($::d));
+            if($partnerRow >= 0)
+            {
+                push(@{$clusters[$row][$partnerRow]}, $stem);
+                RemovePartner($partner, \@{$data[$partnerRow]});
+            }
+            else
+            {
+                push(@{$scClusters[$row]}, $stem);
+            }
+        }
+        
+        $row++;
+    }
+    
+    my $nRows = $row;
+    
+    for(my $i=0; $i<$nRows; $i++)
+    {
+        for(my $j=0; $j<$nRows; $j++)
+        {
+            if(defined($clusters[$i][$j]))
+            {
+                my $data = '';
+                $data .= "$i $j: " if(defined($::d));
+                foreach my $item (@{$clusters[$i][$j]})
+                {
+                    $data .= "$item ";
+                }
+                push @results, $data;
+            }
+        }
+    }
+    
+    my $i=0;
+    foreach my $aRow (@scClusters)
+    {
+        if(defined($aRow))
+        {
+            my $data = '';
+            $data .= "$i: " if(defined($::d));
+            foreach my $item (@$aRow)
+            {
+                $data .= "$item ";
+            }
+            push @results, $data;
+        }
+        $i++;
+    }
+
+    return(@results);
+}
+
+
+#-----------------------------------------------------------------------
+sub RemovePartner
+{
+    my($partner, $aRow) = @_;
+    @$aRow = grep ! /$partner/, @$aRow;
+}
+
+
+#-----------------------------------------------------------------------
+sub FindPartnerRow
+{
+    my($partner, @data) = @_;
+    my $row = 0;
+    foreach my $aRow (@data)
+    {
+        foreach my $item (@$aRow)
+        {
+            if($item eq $partner)
+            {
+                return($row);
+            }
+        }
+        $row++;
+    }
+    return(-1);
+}
+
+
+#-----------------------------------------------------------------------
+sub GetPartnerName
+{
+    my($item) = @_;
+    if($item =~ '_1$')
+    {
+        $item =~ s/_1$/_2/;
+    }
+    else
+    {
+        $item =~ s/_2$/_1/;
+    }
+    my $stem = $item;
+    $stem =~ s/_[12]$//;
+    return($item, $stem);
+}
 
