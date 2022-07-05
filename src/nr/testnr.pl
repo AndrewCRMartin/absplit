@@ -1,8 +1,8 @@
-#!/usr/bin/perl
+#!/usr/bin/perl -s
 use strict;
 my @data = ();
 my @clusters = ();
-#my @scClusters = ();
+my @scClusters = ();
 while(<>)
 {
     chomp;
@@ -15,23 +15,22 @@ foreach my $aRow (@data)
 {
     while(scalar(@{$aRow}))
     {
-#        printf("%d\n", scalar(@{$aRow}));
-#        print "@{$aRow}\n";
         # Take the last item from this row
         my $item = pop(@$aRow);
         # Construct the name of its partner
         my ($partner, $stem) = GetPartnerName($item);
         # Find which row the partner is in
         my $partnerRow = FindPartnerRow($partner, @data);
+        print("$item $partner $partnerRow\n") if(defined($::d));
         if($partnerRow >= 0)
         {
             push(@{$clusters[$row][$partnerRow]}, $stem);
-            RemovePartner($partner, $data[$row]);
+            RemovePartner($partner, \@{$data[$partnerRow]});
         }
-#        else
-#        {
-#            push(@{$scClusters[$row]}, $stem);
-#        }
+        else
+        {
+            push(@{$scClusters[$row]}, $stem);
+        }
     }
 
     $row++;
@@ -45,7 +44,7 @@ for(my $i=0; $i<$nRows; $i++)
     {
         if(defined($clusters[$i][$j]))
         {
-            print "$i $j: ";
+            print "$i $j: " if(defined($::d));
             foreach my $item (@{$clusters[$i][$j]})
             {
                 print "$item ";
@@ -55,25 +54,28 @@ for(my $i=0; $i<$nRows; $i++)
     }
 }
 
-#printf("Single chain clusters...\n");
-#foreach my $aRow (@scClusters)
-#{
-#    if(defined($aRow))
-#    {
-#        foreach my $item (@$aRow)
-#        {
-#            print "$item ";
-#        }
-#        print "\n";
-#    }
-#}
+printf("Single chain clusters...\n") if(defined($::d));
+my $i=0;
+foreach my $aRow (@scClusters)
+{
+    if(defined($aRow))
+    {
+        print "$i: " if(defined($::d));
+        foreach my $item (@$aRow)
+        {
+            print "$item ";
+        }
+        print "\n";
+    }
+    $i++;
+}
 
 
 
 sub RemovePartner
 {
-    my($partner, $pRow) = @_;
-    @{$pRow} = grep ! /$partner/, @{$pRow};
+    my($partner, $aRow) = @_;
+    @$aRow = grep ! /$partner/, @$aRow;
 }
 
 sub FindPartnerRow
