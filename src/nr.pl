@@ -84,16 +84,19 @@ sub AddSingleChainClusters
     foreach my $key (sort keys %$hChainClusters)
     {
         my $hasMembers = 0;
-        foreach my $member (sort @{$$hChainClusters{$key}})
+        if(defined($$hChainClusters{$key}))
         {
-            if(!inArray($member, @$aDeleted))
+            foreach my $member (sort @{$$hChainClusters{$key}})
             {
-                push(@{$$hClusters{$key}}, $member);
-                delete $$hClusters{$member};
-                $hasMembers = 1;
+                if(!inArray($member, @$aDeleted))
+                {
+                    push(@{$$hClusters{$key}}, $member);
+                    delete $$hClusters{$member};
+                    $hasMembers = 1;
+                }
+                delete ($$hChainClusters{$member});
+                push(@$aDeleted, $member);
             }
-            delete ($$hChainClusters{$member});
-            push(@$aDeleted, $member);
         }
         if($hasMembers)
         {
