@@ -99,16 +99,16 @@ sub FindPartnerRow
 sub GetPartnerName
 {
     my($item) = @_;
-    if($item =~ '_1')
+    if($item =~ '_1$')
     {
-        $item =~ s/_1/_2/;
+        $item =~ s/_1$/_2/;
     }
     else
     {
-        $item =~ s/_2/_1/;
+        $item =~ s/_2$/_1/;
     }
     my $stem = $item;
-    $stem =~ s/_[12]//;
+    $stem =~ s/_[12]$//;
     return($item, $stem);
 }
 

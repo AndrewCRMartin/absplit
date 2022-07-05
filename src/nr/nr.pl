@@ -2,6 +2,16 @@
 
 use strict;
 
+
+my $clsFile = "./t/clusters.faa.clstr";
+    my @clusters = ReadClusters($clsFile);
+    foreach my $cluster (@clusters)
+    {
+        print "$cluster\n";
+    }
+
+exit 0;
+
 $::gCDHit = '../../dataprep/cdhit/cd-hit';
 
 my $fastaDir = shift @ARGV;
@@ -19,7 +29,11 @@ sub Cluster
     my($faaFile, $tmpDir) = @_;
     `$::gCDHit -c 1.0 -i $faaFile -o $tmpDir/clusters.faa`;
     my $clsFile = "$tmpDir/clusters.faa.clstr";
-    my %clusters = ReadClusters($clsFile);
+    my @clusters = ReadClusters($clsFile);
+    foreach my $cluster (@clusters)
+    {
+        print "$cluster\n";
+    }
 }
 
 
@@ -98,56 +112,12 @@ sub ProcessFASTAFile
 }
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 sub ReadClusters
 {
     my ($clsFile) = @_;
-    my %clusters = ();
-    my @members  = ();
+    my @clusters = ();
     my $index    = 0;
+    my @members  = ();
 
     if(open(my $fp, '<', $clsFile))
     {
@@ -158,17 +128,8 @@ sub ReadClusters
             {
                 if(scalar(@members))
                 {
-                    foreach my $key (@members)
-                    {
-                        $index = 0;
-                        foreach my $member (@members)
-                        {
-                            if($member ne $key)
-                            {
-                                $clusters{$key}[$index++] = $member;
-                            }
-                        }
-                    }
+                    my $output = join(' ', @members);
+                    push @clusters, $output;
                 }
                 @members = ();
             }
@@ -177,7 +138,7 @@ sub ReadClusters
                 my @fields = split;
                 my $member = $fields[2];
                 $member =~ s/^\>//;
-                $member =~ s/\|.*//;
+                $member =~ s/\.\.\..*//;
 #                print "Storing $member\n";
                 push @members, $member;
             }
@@ -187,72 +148,11 @@ sub ReadClusters
         # and the last one
         if(scalar(@members))
         {
-            foreach my $key (@members)
-            {
-                $index = 0;
-                foreach my $member (@members)
-                {
-                    if($member ne $key)
-                    {
-                        $clusters{$key}[$index++] = $member;
-                    }
-                }
-            }
+            my $output = join(' ', @members);
+            push @clusters, $output;
         }
     }
-    return(%clusters);
-}
-
-sub MakeFAA
-{
-    my($fastaDir, $tmpDir, $chain) = @_;
-
-    my $outFile = "$tmpDir/all_${chain}.faa";
-
-    if(open(my $fh, '>', $outFile))
-    {
-        if(opendir(my $fd, $fastaDir))
-        {
-            my @files = grep /\.faa/, readdir($fd);
-            closedir($fd);
-            foreach my $inFile (@files)
-            {
-                my $content = GetLorH("$fastaDir/$inFile", $chain);
-                print $fh $content;
-            }
-        }
-        else
-        {
-            return('');
-        }
-        close($fh);
-    }
-    else
-    {
-        return('');
-    }
-    return($outFile);
-}
-
-sub GetLorH
-{
-    my($inFile, $chain) = @_;
-    my $content = '';
-    if(open(my $fp, '<', $inFile))
-    {
-        my $header = <$fp>;
-        my $light  = <$fp>;
-        my $heavy  = <$fp>;
-        close $fp;
-
-        $header =~ s/L_H\s*$/$chain/;
-        $content = "$header\n";
-        my $sequence = ($chain eq 'L')?$light:$heavy;
-        $sequence =~ s/\s//g;
-        return('') if($sequence eq '');
-        $content .= "$sequence\n"; 
-    }
-    return($content);
+    return(@clusters);
 }
 
 sub Die
