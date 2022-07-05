@@ -1,7 +1,8 @@
 #!/usr/bin/perl
 use strict;
 my @data = ();
-my $clusters = [];
+my @clusters = ();
+#my @scClusters = ();
 while(<>)
 {
     chomp;
@@ -12,28 +13,61 @@ while(<>)
 my $row = 0;
 foreach my $aRow (@data)
 {
-    # Take the last item from this row
-    my $item = pop(@$aRow);
-    # Construct the name of its partner
-    my ($partner, $stem) = GetPartnerName($item);
-    # Find which row the partner is in
-    my $partnerRow = FindPartner($partner, @data);
-    push(@($clusters[$row][$partnerRow]), $stem);
-    RemovePartner($partner, $data[$row]);
+    while(scalar(@{$aRow}))
+    {
+#        printf("%d\n", scalar(@{$aRow}));
+#        print "@{$aRow}\n";
+        # Take the last item from this row
+        my $item = pop(@$aRow);
+        # Construct the name of its partner
+        my ($partner, $stem) = GetPartnerName($item);
+        # Find which row the partner is in
+        my $partnerRow = FindPartnerRow($partner, @data);
+        if($partnerRow >= 0)
+        {
+            push(@{$clusters[$row][$partnerRow]}, $stem);
+            RemovePartner($partner, $data[$row]);
+        }
+#        else
+#        {
+#            push(@{$scClusters[$row]}, $stem);
+#        }
+    }
 
     $row++;
 }
 
+my $nRows = $row;
 
-
-foreach my $aRow (@data)
+for(my $i=0; $i<$nRows; $i++)
 {
-    foreach my $item (@$aRow)
+    for(my $j=0; $j<$nRows; $j++)
     {
-        print "$item ";
+        if(defined($clusters[$i][$j]))
+        {
+            print "$i $j: ";
+            foreach my $item (@{$clusters[$i][$j]})
+            {
+                print "$item ";
+            }
+            print "\n";
+        }
     }
-    print "\n";
 }
+
+#printf("Single chain clusters...\n");
+#foreach my $aRow (@scClusters)
+#{
+#    if(defined($aRow))
+#    {
+#        foreach my $item (@$aRow)
+#        {
+#            print "$item ";
+#        }
+#        print "\n";
+#    }
+#}
+
 
 
 sub RemovePartner
@@ -42,7 +76,7 @@ sub RemovePartner
     @{$pRow} = grep ! /$partner/, @{$pRow};
 }
 
-sub FindPartner
+sub FindPartnerRow
 {
     my($partner, @data) = @_;
     my $row = 0;
