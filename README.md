@@ -10,10 +10,8 @@ Code to take an antibody PDB file and split it into separate Fvs
    - decided to do this first with pdbsymm
 3. Some truncated sequences won't score highly enough to be flagged
    as antibodies - just score over the aligned region.
-4. Heavy chain only not being done properly (at least in header)
-   e.g. 1t2j_0, 1shm_1
-5. Bence-Jones dimers are labelling both chains as L - should be L
-   and l e.g. 1rei
+4. Crystal packing sometimes identified as a complex.
+   e.g. 1shm_1
    
 
 ## Algorithm
