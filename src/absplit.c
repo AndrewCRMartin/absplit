@@ -11,7 +11,7 @@
    \date       17.09.21   
    \brief      Split an antibody PDB file into Fvs with antigens
    
-   \copyright  (c) UCL / Prof. Andrew C. R. Martin 2021
+   \copyright  (c) UCL / Prof. Andrew C. R. Martin 2021-22
    \author     Prof. Andrew C. R. Martin
    \par
                Institute of Structural & Molecular Biology,
@@ -187,6 +187,8 @@ BOOL IsStandardResidue(PDBRESIDUE *res);
 int FindLastAlignmentPosition(char *refAln);
 int IsKeyResidue(int seqPos, int *refKeys,
                  char *seqAln, char *refAln);
+
+BOOL DomainSequenceMatchesChainSequence(DOMAIN *domain, PDBCHAIN *chain);
 
 
 
@@ -380,7 +382,10 @@ BOOL ProcessFile(WHOLEPDB *wpdb, char *infile, FILE *dataFp)
       if((outChains = (char **)blArray2D(sizeof(char),
                                          MAXCHAINS,
                                          blMAXCHAINLABEL))==NULL)
-      {  /* TODO This could be the actual number of chains instead of MAXCHAINS */
+      {  /* TODO This could be the actual number of chains instead of 
+            MAXCHAINS 
+            Also needs to be freed at the end.
+         */
          fprintf(stderr,"Error: No memory for outChains array\n");
          return(FALSE);
       }
@@ -520,11 +525,11 @@ FILE *OpenSequenceDataFile(void)
                     char *alignSeqres, char *alignRef)
    -----------------------------------------------
 *//**
-   \param[in]   seqresSeq   the sequence of interest
-   \param[in]   refSeq      the database sequence
+   \param[in]   seqresSeq     the sequence of interest
+   \param[in]   refSeq        the database sequence
    \param[out]  alignSeqres   Alignment of our sequence
-   \param[out]  alignRef   Alignment of database sequence
-   \return               Score for alignment
+   \param[out]  alignRef      Alignment of database sequence
+   \return                    Score for alignment
 
    - 31.03.20 Original   By: ACRM
    - 20.09.21 Modified to use affine alignment and mutation matrix
@@ -1494,6 +1499,26 @@ BOOL CheckAntigenContacts(DOMAIN *domain, PDBSTRUCT *pdbs)
                    domain->domainNumber, domain->chain->chain,
                    chain->chain);
 #endif
+
+            /* Now check whether the sequence of this chain matches
+               that of the domain or of the paired domain. If so this 
+               must be crystal packing rather than an antigen interaction.
+            */
+            if(DomainSequenceMatchesChainSequence(domain, chain))
+            {
+               printf("Crystal packing: Chain %s = Domain %d (chain %s)\n",
+                      chain->chain, domain->domainNumber,
+                      domain->chain->chain);
+               continue;
+            }
+            
+            if(DomainSequenceMatchesChainSequence(pairedDomain, chain))
+            {
+               printf("Crystal packing: Chain %s = Domain %d (chain %s)\n",
+                      chain->chain, pairedDomain->domainNumber,
+                      pairedDomain->chain->chain);
+               continue;
+            }
             
             /* Check this domain for contacts a residue at a time       */
             for(p=domain->startRes; p!=domain->stopRes; p=nextResP)
@@ -2248,3 +2273,57 @@ int FindLastAlignmentPosition(char *refAln)
    return(pos);
 }
 
+BOOL DomainSequenceMatchesChainSequence(DOMAIN *domain, PDBCHAIN *chain)
+{
+   if(domain != NULL)
+   {
+      PDBRESIDUE *r;
+      char       chainSeq[MAXSEQ+1],
+                 alignChainSeq[MAXSEQ+1],
+                 alignDomSeq[MAXSEQ+1];
+      int        nRes     = 0,
+                 nAligned = 0,
+                 nMatched = 0,
+                 alignLen,
+                 i;
+      
+
+      /* Assemble the chain sequence                                    */
+      for(r=chain->residues; r!=NULL; NEXT(r))
+      {
+         chainSeq[nRes++] = blThrone(r->resnam);
+      }
+      chainSeq[nRes] = '\0';
+
+      /* Align the sequences                                            */
+      blAffinealign(chainSeq, strlen(chainSeq),
+                    domain->domSeq, strlen(domain->domSeq),
+                    FALSE,          /* verbose                  */
+                    TRUE,           /* identity                 */
+                    2,              /* penalty                  */
+                    1,              /* extension                */
+                    alignChainSeq,
+                    alignDomSeq,
+                    &alignLen);
+      /* Score the matched residues                                     */
+      for(i=0; i<alignLen; i++)
+      {
+         if((alignChainSeq[i] != '-') &&
+            (alignDomSeq[i]   != '-'))
+         {
+            nAligned++;
+            if(alignChainSeq[i] == alignDomSeq[i])
+            {
+               nMatched++;
+            }
+         }
+      }
+
+      if(((REAL)nMatched/(REAL)nAligned) >= 0.98)
+      {
+         return(TRUE);
+      }
+   }
+   
+   return(FALSE);
+}
