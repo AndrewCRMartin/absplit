@@ -172,7 +172,9 @@ BOOL RegionsMakeContact(PDB *start1, PDB *stop1, PDB *start2, PDB *stop2);
 void FlagHetAntigenChains(DOMAIN *domains, PDBSTRUCT *pdbs);
 void FlagHetAntigenResidues(WHOLEPDB *wpd, DOMAIN *domains,
                             PDBSTRUCT *pdbs);
-PDB *RelabelAntibodyChain(DOMAIN *domain, char *remark950);
+PDB *RelabelAntibodyChain(DOMAIN *domain,
+                          BOOL *lowerCaseLight, BOOL *lowerCaseHeavy,
+                          char *remark950);
 PDB *RelabelAntigenChains(DOMAIN *domain, char *remark950);
 void WriteSeqres(FILE *fp, WHOLEPDB *wpdb, DOMAIN *d);
 int CountResidueAtoms(PDBRESIDUE *res);
@@ -1215,12 +1217,17 @@ void WriteDomains(WHOLEPDB *wpdb, DOMAIN *domains, char *filestem)
             char remark950Domain[100],
                  remark950Partner[100],
                  remark950Antigen[MAXANTIGEN * 100];
+            BOOL lowerCaseLight = FALSE,
+                 lowerCaseHeavy = FALSE;
+
             
             d->used = TRUE;
 
             pdb1 = RelabelAntibodyChain(d,
+                                        &lowerCaseLight, &lowerCaseHeavy,
                                         remark950Domain);
             pdb2 = RelabelAntibodyChain(d->pairedDomain,
+                                        &lowerCaseLight, &lowerCaseHeavy,
                                         remark950Partner);
             pdb3 = RelabelAntigenChains(d,
                                         remark950Antigen);
@@ -1958,7 +1965,8 @@ BOOL IsStandardResidue(PDBRESIDUE *res)
 
 
 
-PDB *RelabelAntibodyChain(DOMAIN *domain, char *remark950)
+PDB *RelabelAntibodyChain(DOMAIN *domain, BOOL *lowerCaseLight,
+                          BOOL *lowerCaseHeavy, char *remark950)
 {
    PDB *p, *q;
    PDB *pdb = NULL;
@@ -1967,11 +1975,28 @@ PDB *RelabelAntibodyChain(DOMAIN *domain, char *remark950)
    
    if(domain)
    {
-      domain->newAbChainLabel[0] = domain->chainType;
-      domain->newAbChainLabel[1] = '\0';
+      /* 12.07.22 Support light chain and heavy chain dimers with upper 
+         and lower case labels.
+      */
+      char chainLabel = domain->chainType;
+      if(chainLabel == 'L')
+      {
+         if(*lowerCaseLight)
+            chainLabel = 'l';
+         *lowerCaseLight = TRUE;
+      }
+      else if(chainLabel == 'H')
+      {
+         if(*lowerCaseHeavy)
+            chainLabel = 'h';
+         *lowerCaseHeavy = TRUE;
+      }
       
+      domain->newAbChainLabel[0] = chainLabel;
+      domain->newAbChainLabel[1] = '\0';
+
       sprintf(remark950, "REMARK 950 CHAIN %c     %c%6s\n",
-              domain->chainType, domain->chainType,
+              domain->chainType, chainLabel,
               domain->startRes->chain);
 
       for(p=domain->startRes; p!=domain->stopRes; NEXT(p))
@@ -1992,7 +2017,7 @@ PDB *RelabelAntibodyChain(DOMAIN *domain, char *remark950)
          }
          
          blCopyPDB(q, p);
-         q->chain[0] = domain->chainType;
+         q->chain[0] = chainLabel;
          q->chain[1] = '\0';
       }
    }
