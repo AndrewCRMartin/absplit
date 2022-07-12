@@ -24,7 +24,8 @@ do
     faa=`basename $file .fix`.faa
     id=`basename $file .fix`
     id=`echo $id | sed 's/^pdb//'`
-    pdbgetchain L,H $file | pdb2pir -s -i -c -f $file > $tmpfaa
+#    pdbgetchain L,l,H,h $file | pdb2pir -s -i -c -f $file > $tmpfaa
+    pdbgetchain L,l,H,h $file | pdb2pir -s -i -c -f > $tmpfaa
     $combinefaa -l=$id $tmpfaa > $faa
 done
 
