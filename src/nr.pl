@@ -4,6 +4,11 @@ use strict;
 
 $::gCDHit = '../dataprep/cdhit/cd-hit';
 
+if(! -x $::gCDHit)
+{
+    Die("CD-HIT is not available at $::gCDHit");
+}
+
 my $fastaDir = shift @ARGV;
 my $tmpDir   = MakeTempDir();
 Die("Cannot create temporary directory $tmpDir") if($tmpDir eq '');
