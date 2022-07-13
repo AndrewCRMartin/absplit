@@ -394,11 +394,12 @@ BOOL ProcessFile(WHOLEPDB *wpdb, char *infile, FILE *dataFp)
                                            TRUE, FALSE,
                                            TRUE, NULL))!=NULL)
       {
+         /* NOTE! The output of blFixSequenceWholePDB isn't used        */
          PDBCHAIN *chain;
          DOMAIN   *domains = NULL;
 
 #ifdef DEBUG
-         fprintf(stderr, "Sequence: %s\n", sequence);
+         fprintf(stderr, "Sequence:\n%s\n", sequence);
 #endif
          
          SetChainAsAtomOrHetatm(pdbs->chains);
@@ -2169,6 +2170,7 @@ void WriteSeqres(FILE *fp, WHOLEPDB *wpdb, DOMAIN *domain)
 }
 
 
+/* Note that we don't actually use the output from this!                */
 char *blFixSequenceWholePDB(WHOLEPDB *wpdb, char **outChains,
                             BOOL ignoreSeqresForMissingChains,
                             BOOL upper, BOOL quiet, char *label)
