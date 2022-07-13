@@ -9,7 +9,9 @@ my $scheme = '-c';
 $scheme = '-k' if(defined($::k));
 $scheme = '-m' if(defined($::m));
 
-my $header = `egrep '(REMARK|SEQRES)' $inFile`;
+my $header = `fgrep REMARK $inFile`;
+my $lightSeqres = `fgrep SEQRES $inFile | egrep '( L | l )'`;
+my $heavySeqres = `fgrep SEQRES $inFile | egrep '( H | h )'`;
 my $lightChain = `pdbgetchain L,l $inFile | egrep '^(ATOM|HETATM)'`;
 my $heavyChain = `pdbgetchain H,h $inFile | egrep '^(ATOM|HETATM)'`;
 my $antigen    = `egrep '^(ATOM|HETATM)' $inFile | grep -v -i ' L ' | grep -v -i ' H '`;
@@ -21,6 +23,8 @@ my $outTemp = "/var/tmp/numberpdb_Out_$$" . '_' . time();
 # Grab just light and heavy chains into a temporary file
 if(open(my $fp, '>', $fileLH))
 {
+    print($fp $lightSeqres);
+    print($fp $heavySeqres);
     print($fp $lightChain);
     print($fp $heavyChain);
     close($fp);
