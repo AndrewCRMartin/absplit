@@ -924,9 +924,11 @@ void MaskAndAssignDomain(char *seq, PDBCHAIN *chain, char *fastaHeader,
 {
    int    seqPos      = 0,
           alnPos      = 0,
-          domSeqPos   = 0,
+#ifdef OLD
           firstAlnPos = 0,
           lastAlnPos  = 0;
+#endif
+          domSeqPos   = 0;
    DOMAIN *d, *prevD;
 
    if(*pDomains == NULL)
@@ -966,12 +968,13 @@ void MaskAndAssignDomain(char *seq, PDBCHAIN *chain, char *fastaHeader,
    printf("REF      : %s\n", refAln);
 #endif
 
-   lastAlnPos = FindLastAlignmentPosition(refAln);
-
    SetChainAsLightOrHeavy(d, fastaHeader);
    SetIFResidues(d,          fastaHeader, seqAln, refAln);
    SetCDRResidues(d,         fastaHeader, seqAln, refAln);
-   
+
+#ifdef OLD
+   lastAlnPos = FindLastAlignmentPosition(refAln);
+
    for(seqPos=0, alnPos=0;
        ((seqPos<strlen(seqAln)) && (alnPos < lastAlnPos));
        seqPos++)
@@ -996,23 +999,30 @@ void MaskAndAssignDomain(char *seq, PDBCHAIN *chain, char *fastaHeader,
       alnPos++;
    }
    d->domSeq[domSeqPos] = '\0';
+#endif
 
    /* Mask the sequence */
-   firstAlnPos = -1;
-   lastAlnPos  = -1;
    for(seqPos=0, alnPos=0;
        seqPos<strlen(seq) && alnPos<strlen(seqAln);
        alnPos++)
    {
       /* If this is an aligned position */
       if((seqAln[alnPos] != '-') &&
+         (seqAln[alnPos] != 'X') &&
          (refAln[alnPos] != '-'))
       {
+         d->domSeq[domSeqPos++] = seq[seqPos];
          seq[seqPos] = 'X';
+         if(d->startSeqRes < 0)
+            d->startSeqRes = seqPos;
+         if(seqPos > d->lastSeqRes)
+            d->lastSeqRes = seqPos;
       }
       if(seqAln[alnPos] != '-')
          seqPos++;
    }
+
+   d->domSeq[domSeqPos] = '\0';
 
    SetDomainBoundaries(d);
 }
