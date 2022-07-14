@@ -722,8 +722,16 @@ void SetIFResidues(DOMAIN *domain, char *fastaHeader, char *seqAln,
         seqResnum,
         nIFRes = 0,
         IFResidues[MAXINTERFACE];
-   int  seqLen = RealSeqLen(seqAln);
-      
+   int  seqLen = strlen(seqAln);
+/*   int  seqLen = RealSeqLen(seqAln); */
+
+
+#ifdef DEBUG
+   printf(">>> seqLen = %d\n", seqLen);
+#endif
+
+
+   
    domain->nInterface = 0;
    strncpy(headerCopy, fastaHeader, MAXBUFF);
    headerCopy[MAXBUFF] = '\0';
@@ -732,6 +740,7 @@ void SetIFResidues(DOMAIN *domain, char *fastaHeader, char *seqAln,
       ptr1++;
       bar = strchr(ptr1, '|');
       
+      /* Grab the list of interface residues from the FASTA header      */
       while((ptr2 = strchr(ptr1, ','))!=NULL)
       {
          if(ptr2 > bar)
@@ -742,7 +751,6 @@ void SetIFResidues(DOMAIN *domain, char *fastaHeader, char *seqAln,
          IFResidues[nIFRes++] = refResnum;
          ptr1  = ptr2+1;
       }
-      
       if((ptr2 = strchr(ptr1, ']'))!=NULL)
       {
          *ptr2 = '\0';
@@ -750,6 +758,8 @@ void SetIFResidues(DOMAIN *domain, char *fastaHeader, char *seqAln,
          IFResidues[nIFRes++] = refResnum;
       }
       IFResidues[nIFRes++] = -1;
+
+      /* Run through the alignment */
       for(seqResnum=1; seqResnum<=seqLen; seqResnum++)
       {
          if(IsKeyResidue(seqResnum, IFResidues, seqAln, refAln))
@@ -769,7 +779,8 @@ void SetCDRResidues(DOMAIN *domain, char *fastaHeader, char *seqAln,
         seqResnum,
         nCDRRes = 0,
         CDRResidues[MAXCDRRES];
-   int  seqLen = RealSeqLen(seqAln);
+   int  seqLen = strlen(seqAln);
+/*   int  seqLen = RealSeqLen(seqAln); */
 
    domain->nCDRRes = 0;
 
@@ -810,40 +821,36 @@ void SetCDRResidues(DOMAIN *domain, char *fastaHeader, char *seqAln,
 }
 
 
-/* seqPos numbered from 1 */
-int IsKeyResidue(int seqPos, int *refKeys,
+
+int IsKeyResidue(int alnPos, int *refKeys,
                  char *seqAln, char *refAln)
 {
-   int i, count, alnPos=0, refPos;
+   int refPos = 0,
+       i;
    
-   /* Correct seqPos to the position in the alignment (numbered from 1) */
-   for(i=0, count=0; i<strlen(seqAln); i++)
-   {
-      if(seqAln[i] != '-')
-         count++;
-      if(count == seqPos)
-      {
-         alnPos = i+1;
-         break;
-      }
-   }
-
-   /* Now count to this position in the reference sequence              */
-   for(i=0, refPos=0; (i<alnPos && i<strlen(seqAln)); i++)
+   /* Find where alnPos is in the reference sequence */
+   for(i=0; i<=alnPos; i++)
    {
       if(refAln[i] != '-')
          refPos++;
    }
-
+   
    /* Now see if this position is in the list of key reference positions*/
    for(i=0; refKeys[i] >=0; i++)
    {
       if(refPos == refKeys[i])
-         return(refPos);
+      {
+         
+#ifdef DEBUG
+         printf("alnPos %d refPos %d refKeys[%d] %d\n", alnPos, refPos, i, refKeys[i]);
+#endif
+         return(1);
+      }
    }
    
    return(0);
 }
+
 
 /************************************************************************/
 int TransferResnum(int refResnum, char *seqAln, char *refAln)
@@ -926,10 +933,6 @@ void MaskAndAssignDomain(char *seq, PDBCHAIN *chain, char *fastaHeader,
 {
    int    seqPos      = 0,
           alnPos      = 0,
-#ifdef OLD
-          firstAlnPos = 0,
-          lastAlnPos  = 0;
-#endif
           domSeqPos   = 0;
    DOMAIN *d, *prevD;
 
@@ -971,35 +974,6 @@ void MaskAndAssignDomain(char *seq, PDBCHAIN *chain, char *fastaHeader,
 #endif
 
    SetChainAsLightOrHeavy(d, fastaHeader);
-
-#ifdef OLD
-   lastAlnPos = FindLastAlignmentPosition(refAln);
-
-   for(seqPos=0, alnPos=0;
-       ((seqPos<strlen(seqAln)) && (alnPos < lastAlnPos));
-       seqPos++)
-   {
-      while(seqAln[alnPos] == '-')  /* Skip insertions                  */
-      {
-         alnPos++;
-      }
-      
-      if(refAln[alnPos] != '\0')
-      {
-         if(d->startSeqRes == (-1))
-            d->startSeqRes = seqPos;
-#ifdef DEBUG
-         printf("Seqpos %d SeqRes %c DomRes %c\n",
-                seqPos, seqAln[alnPos], refAln[alnPos]);
-#endif
-         d->lastSeqRes = seqPos;
-         d->domSeq[domSeqPos++] = seq[seqPos];
-/*         seq[seqPos] = 'X'; */
-      }
-      alnPos++;
-   }
-   d->domSeq[domSeqPos] = '\0';
-#endif
 
    /* Mask the sequence */
    for(seqPos=0, alnPos=0;
@@ -1214,7 +1188,7 @@ Dist %.3f\n",
                   }
                }
                
-#ifdef DEBUG
+#ifdef FUBAR
                printf("CofG Distance (domain %d to %d): %.3f\n",
                       d1->domainNumber, d2->domainNumber,
                       sqrt(distCofGSq));
