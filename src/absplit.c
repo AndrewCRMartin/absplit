@@ -1144,7 +1144,7 @@ void PairDomains(DOMAIN *domains)
             
             distCofGSq = DISTSQ(c1, c2);
 
-#ifdef FUBAR
+#ifndef FUBAR
             fprintf(stderr, "Chain1 %s; CofG1 %.3f %.3f %.3f; \
 Chain2 %s; CofG2 %.3f %.3f %.3f; \
 Dist %.3f\n",
@@ -1162,6 +1162,18 @@ Dist %.3f\n",
                c2 = &(d2->IntCofG);
                
                distIntSq = DISTSQ(c1, c2);
+
+#ifndef FUBAR
+               fprintf(stderr, "Chain1 %s; IntCofG1 %.3f %.3f %.3f; \
+Chain2 %s; IntCofG2 %.3f %.3f %.3f; \
+Dist %.3f\n",
+                       d1->lastRes->chain,
+                       c1->x, c1->y, c1->z, 
+                       d2->startRes->chain,
+                       c2->x, c2->y, c2->z,
+                       sqrt(distIntSq));
+#endif
+
                if(distIntSq < INTDISTCUTSQ)
                {
                   if(distIntSq < distCofGSq)
@@ -1177,7 +1189,7 @@ Dist %.3f\n",
                         d2->pairIntDistSq  = distIntSq;
                         d1->pairedDomain = d2;
                         d2->pairedDomain = d1;
-#ifdef DEBUG
+#ifndef DEBUG
                         printf("*Paired domain %d with %d\n",
                                d1->domainNumber, d2->domainNumber);
 #endif
@@ -1185,7 +1197,7 @@ Dist %.3f\n",
                   }
                }
                
-#ifdef DEBUG
+#ifndef DEBUG
                printf("CofG Distance (domain %d to %d): %.3f\n",
                       d1->domainNumber, d2->domainNumber,
                       sqrt(distCofGSq));
