@@ -663,7 +663,7 @@ BOOL CheckAndMask(char *seqresSeq, FILE *dbFp, PDBCHAIN *chain,
    }
 
    /* If we found an antibody sequence                                  */
-#ifndef DEBUG
+#ifdef DEBUG
    printf("MaxScore : %f\n", maxScore);
    printf("Sequence : %s\n", bestAlignSeqres);
    printf("Reference: %s\n", bestAlignRef);
@@ -681,7 +681,7 @@ BOOL CheckAndMask(char *seqresSeq, FILE *dbFp, PDBCHAIN *chain,
       
       MaskAndAssignDomain(seqresSeq, chain, bestMatchFastaHeader,
                           bestAlignSeqres, bestAlignRef, pDomains);
-#ifndef DEBUG
+#ifdef DEBUG
       printf("Masked   : %s\n", seqresSeq);
 #endif
       found = TRUE;
@@ -753,7 +753,8 @@ void SetIFResidues(DOMAIN *domain, char *fastaHeader, char *seqAln,
       for(seqResnum=1; seqResnum<=seqLen; seqResnum++)
       {
          if(IsKeyResidue(seqResnum, IFResidues, seqAln, refAln))
-            domain->interface[domain->nInterface++] = seqResnum;
+            domain->interface[domain->nInterface++] =
+               seqResnum - domain->startSeqRes;
       }
    }
 }
@@ -801,7 +802,8 @@ void SetCDRResidues(DOMAIN *domain, char *fastaHeader, char *seqAln,
          for(seqResnum=1; seqResnum<=seqLen; seqResnum++)
          {
             if(IsKeyResidue(seqResnum, CDRResidues, seqAln, refAln))
-               domain->CDRRes[domain->nCDRRes++] = seqResnum;
+               domain->CDRRes[domain->nCDRRes++] =
+                  seqResnum - domain->startSeqRes;
          }
       }
    }
@@ -963,14 +965,12 @@ void MaskAndAssignDomain(char *seq, PDBCHAIN *chain, char *fastaHeader,
    d->nAntigenChains = 0;
 
 
-#ifndef DEBUG_SET_CDR
+#ifdef DEBUG_SET_CDR
    printf("SEQ      : %s\n", seqAln);
    printf("REF      : %s\n", refAln);
 #endif
 
    SetChainAsLightOrHeavy(d, fastaHeader);
-   SetIFResidues(d,          fastaHeader, seqAln, refAln);
-   SetCDRResidues(d,         fastaHeader, seqAln, refAln);
 
 #ifdef OLD
    lastAlnPos = FindLastAlignmentPosition(refAln);
@@ -1024,6 +1024,23 @@ void MaskAndAssignDomain(char *seq, PDBCHAIN *chain, char *fastaHeader,
 
    d->domSeq[domSeqPos] = '\0';
 
+   SetIFResidues(d,          fastaHeader, seqAln, refAln);
+   SetCDRResidues(d,         fastaHeader, seqAln, refAln);
+#ifdef DEBUG
+   {
+      int i;
+      
+      printf("IF Residue numbers: \n");
+      for(i=0;i<d->nInterface; i++)
+         printf("%d ", d->interface[i]);
+      printf("\n");
+      printf("CDR Residue numbers: \n");
+      for(i=0;i<d->nCDRRes; i++)
+         printf("%d ", d->CDRRes[i]);
+      printf("\n");
+   }
+#endif
+   
    SetDomainBoundaries(d);
 }
 
@@ -1144,7 +1161,7 @@ void PairDomains(DOMAIN *domains)
             
             distCofGSq = DISTSQ(c1, c2);
 
-#ifndef FUBAR
+#ifdef FUBAR
             fprintf(stderr, "Chain1 %s; CofG1 %.3f %.3f %.3f; \
 Chain2 %s; CofG2 %.3f %.3f %.3f; \
 Dist %.3f\n",
@@ -1163,7 +1180,7 @@ Dist %.3f\n",
                
                distIntSq = DISTSQ(c1, c2);
 
-#ifndef FUBAR
+#ifdef FUBAR
                fprintf(stderr, "Chain1 %s; IntCofG1 %.3f %.3f %.3f; \
 Chain2 %s; IntCofG2 %.3f %.3f %.3f; \
 Dist %.3f\n",
@@ -1197,7 +1214,7 @@ Dist %.3f\n",
                   }
                }
                
-#ifndef DEBUG
+#ifdef DEBUG
                printf("CofG Distance (domain %d to %d): %.3f\n",
                       d1->domainNumber, d2->domainNumber,
                       sqrt(distCofGSq));
@@ -1796,7 +1813,7 @@ void FlagHetAntigenChains(DOMAIN *domains, PDBSTRUCT *pdbs)
 Domain %d\n",
                                         pc->chain, pc->resnum, pc->insert,
                                         d->domainNumber);
-#ifndef DEBUG
+#ifdef DEBUG
                                  printf("%s%d%s.%s contacts %s%d%s.%s\n",
                                         pc->chain, pc->resnum,
                                         pc->insert, pc->atnam,
@@ -1901,7 +1918,7 @@ void FlagHetAntigenResidues(WHOLEPDB *wpdb, DOMAIN *domains,
                                     if(d->nHetAntigen < MAXHETANTIGEN)
                                     {
                                        d->hetAntigen[d->nHetAntigen++] = r;
-#ifndef DEBUG
+#ifdef DEBUG
                                        printf("Stored domain %d residue %s\n",
                                               d->domainNumber, r->resid);
 #endif
