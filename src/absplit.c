@@ -681,6 +681,9 @@ BOOL CheckAndMask(char *seqresSeq, FILE *dbFp, PDBCHAIN *chain,
       
       MaskAndAssignDomain(seqresSeq, chain, bestMatchFastaHeader,
                           bestAlignSeqres, bestAlignRef, pDomains);
+#ifndef DEBUG
+      printf("Masked   : %s\n", seqresSeq);
+#endif
       found = TRUE;
    }
    
@@ -919,10 +922,11 @@ PairsWithDomain: %d (Chain: %s)\n",
 void MaskAndAssignDomain(char *seq, PDBCHAIN *chain, char *fastaHeader,
                          char *seqAln, char *refAln, DOMAIN **pDomains)
 {
-   int    seqPos     = 0,
-          alnPos     = 0,
-          domSeqPos  = 0,
-          lastAlnPos = 0;
+   int    seqPos      = 0,
+          alnPos      = 0,
+          domSeqPos   = 0,
+          firstAlnPos = 0,
+          lastAlnPos  = 0;
    DOMAIN *d, *prevD;
 
    if(*pDomains == NULL)
@@ -955,10 +959,11 @@ void MaskAndAssignDomain(char *seq, PDBCHAIN *chain, char *fastaHeader,
    d->nInterface     = 0;
    d->nHetAntigen    = 0;
    d->nAntigenChains = 0;
-   
-#ifdef DEBUG_SET_CDR
-   printf("SEQ: %s\n", seqAln);
-   printf("REF: %s\n", refAln);
+
+
+#ifndef DEBUG_SET_CDR
+   printf("SEQ      : %s\n", seqAln);
+   printf("REF      : %s\n", refAln);
 #endif
 
    lastAlnPos = FindLastAlignmentPosition(refAln);
@@ -986,11 +991,28 @@ void MaskAndAssignDomain(char *seq, PDBCHAIN *chain, char *fastaHeader,
 #endif
          d->lastSeqRes = seqPos;
          d->domSeq[domSeqPos++] = seq[seqPos];
-         seq[seqPos] = 'X';
+/*         seq[seqPos] = 'X'; */
       }
       alnPos++;
    }
    d->domSeq[domSeqPos] = '\0';
+
+   /* Mask the sequence */
+   firstAlnPos = -1;
+   lastAlnPos  = -1;
+   for(seqPos=0, alnPos=0;
+       seqPos<strlen(seq) && alnPos<strlen(seqAln);
+       alnPos++)
+   {
+      /* If this is an aligned position */
+      if((seqAln[alnPos] != '-') &&
+         (refAln[alnPos] != '-'))
+      {
+         seq[seqPos] = 'X';
+      }
+      if(seqAln[alnPos] != '-')
+         seqPos++;
+   }
 
    SetDomainBoundaries(d);
 }
