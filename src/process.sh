@@ -34,8 +34,8 @@ done
 badFile=0
 for file in ${stem}_*.fix
 do
-    footer=`basename $file .fix`.foot
-    $getfooter $file > $footer
+#    footer=`basename $file .fix`.foot
+#    $getfooter $file > $footer
 
     tmpfile=`basename $file .fix`.tmp
 
@@ -44,7 +44,7 @@ do
     if [ "X$line1" == "XMASTER" ]; then
         badFile=1
     else
-       cat $footer >> `basename $file .fix`.tmp
+#       cat $footer >> `basename $file .fix`.tmp
        pdbrenum -d `basename $file .fix`.tmp > `basename $file .fix`.kab
     fi
     
@@ -53,7 +53,7 @@ do
     if [ "X$line1" == "XMASTER" ]; then
         badFile=1
     else
-        cat $footer >> `basename $file .fix`.tmp
+#        cat $footer >> `basename $file .fix`.tmp
         pdbrenum -d `basename $file .fix`.tmp > `basename $file .fix`.cho
     fi
     
@@ -62,10 +62,10 @@ do
     if [ "X$line1" == "XMASTER" ]; then
         badFile=1
     else
-        cat $footer >> `basename $file .fix`.tmp
+#        cat $footer >> `basename $file .fix`.tmp
         pdbrenum -d `basename $file .fix`.tmp > `basename $file .fix`.mar
     fi
-    rm $footer
+#    rm $footer
 
     if [ $badFile == 1 ]; then
         mv $file `basename $file .fix`.bad

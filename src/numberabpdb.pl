@@ -10,11 +10,12 @@ $scheme = '-k' if(defined($::k));
 $scheme = '-m' if(defined($::m));
 
 my $header = `fgrep REMARK $inFile`;
-my $lightSeqres = `fgrep SEQRES $inFile | egrep '( L | l )'`;
-my $heavySeqres = `fgrep SEQRES $inFile | egrep '( H | h )'`;
-my $lightChain = `pdbgetchain L,l $inFile | egrep '^(ATOM|HETATM)'`;
-my $heavyChain = `pdbgetchain H,h $inFile | egrep '^(ATOM|HETATM)'`;
-my $antigen    = `egrep '^(ATOM|HETATM)' $inFile | grep -v -i ' L ' | grep -v -i ' H '`;
+my $lightSeqres   = `fgrep SEQRES $inFile | egrep '( L | l )'`;
+my $heavySeqres   = `fgrep SEQRES $inFile | egrep '( H | h )'`;
+my $antigenSeqres = `fgrep SEQRES $inFile | egrep -v -i '( H | L )'`;
+my $lightChain   = `pdbgetchain L,l $inFile | egrep '^(ATOM|HETATM)'`;
+my $heavyChain   = `pdbgetchain H,h $inFile | egrep '^(ATOM|HETATM)'`;
+my $antigen      = `egrep '^(ATOM|HETATM)' $inFile | grep -v -i ' L ' | grep -v -i ' H '`;
 
 my $fileLH  = "/var/tmp/numberpdb_LH_$$"  . '_' . time();
 my $fileNum = "/var/tmp/numberpdb_Num_$$" . '_' . time();
@@ -35,10 +36,15 @@ else
 }
 
 # Apply numbering to the temp file and save in another temp file
-`pdbabnum $scheme $fileLH | egrep -v '^(MASTER|END)' > $fileNum`;
+`pdbabnum $scheme $fileLH | egrep -v '^(MASTER|END|SEQRES)' > $fileNum`;
 
 # Write the header to the final output tempfile
 WriteToFile($outTemp, $header, 0);
+# Add the SEQRES data
+WriteToFile($outTemp, $lightSeqres, 1);
+WriteToFile($outTemp, $heavySeqres, 1);
+WriteToFile($outTemp, $antigenSeqres, 1);
+
 # Add the numbered coordinates
 `cat $fileNum >> $outTemp`;
 # Add the antigen
@@ -48,7 +54,7 @@ WriteToFile($outTemp, $antigen, 1);
 `pdbdummystrip $outTemp > $outFile`;
 FixChainLabels($outFile, $outTemp);
 `pdbrenum -d $outFile > $outTemp`;
-`mv -f $outTemp $outFile`;
+`pdbconect $outTemp $outFile`;
 
 unlink $fileLH;
 unlink $fileNum;
