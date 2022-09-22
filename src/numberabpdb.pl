@@ -9,7 +9,7 @@ my $scheme = '-c';
 $scheme = '-k' if(defined($::k));
 $scheme = '-m' if(defined($::m));
 
-my $header = `fgrep REMARK $inFile`;
+my $header = `egrep '(REMARK|MODRES)' $inFile`;
 my $lightSeqres   = `fgrep SEQRES $inFile | egrep '( L | l )'`;
 my $heavySeqres   = `fgrep SEQRES $inFile | egrep '( H | h )'`;
 my $antigenSeqres = `fgrep SEQRES $inFile | egrep -v -i '( H | L )'`;
@@ -35,8 +35,12 @@ else
     die "Can't write $fileLH";
 }
 
+my $errFile = $inFile;
+$errFile =~ s/^.*\///;
+$errFile .= $scheme . ".err";
+
 # Apply numbering to the temp file and save in another temp file
-`pdbabnum $scheme $fileLH | egrep -v '^(MASTER|END|SEQRES)' > $fileNum`;
+`pdbabnum $scheme $fileLH 2> $errFile | egrep -v '^(MASTER|END|SEQRES)' > $fileNum`;
 
 # Write the header to the final output tempfile
 WriteToFile($outTemp, $header, 0);

@@ -1,0 +1,35 @@
+main() <161>:
+    ParseCmdLine() <233>:
+    blReadWholePDB()
+    OpenSequenceDataFile() <403>:
+        ExePathName() <376>:
+    blReadMDM()
+    ProcessFile() <309>:
+        GetFilestem() <288>:
+        blAllocPDBStructure()
+        SetChainTypes() <1022>:
+        FindVHVLDomains() <464>:
+            GetSequenceForChain() <356>:
+                blThrone()
+            CheckAndMask() <481>:
+                blReadFASTA()
+                CompareSeqs() <427>:
+                    blAffinealign()
+                MaskAndAssignDomain() <661>:
+                    SetChainType() <529>:
+                    SetIFResidues() <541>:
+                    SetCDRResidues() <573>:
+                    SetDomainBoundaries() <729>:
+                        blFindNextResidue()
+        PairDomains() <815>:
+        FlagAntigens() <994>:
+            CheckAntigenContacts() <1082>:
+                InIntArray() <1042>:
+                RegionsMakeContact() <1056>:
+        FlagHetAntigens() <1203>:
+        PrintDomains() <607>:
+        WriteDomains() <881>:
+            blWritePDBRecord()
+        blFreePDBStructure()
+    blFreeWholePDB()
+    UsageDie() <282>:

@@ -74,7 +74,7 @@
 #define MAXBUFF         240
 #define HUGEBUFF        10000
 #define MAXSEQ          10000
-#define ABTHRESHOLD     0.45
+#define ABTHRESHOLD     0.5    /* Was 0.45 */
 #define GAPOPENPENALTY  5
 #define GAPEXTPENALTY   2
 #define SCOREMATRIX     "BLOSUM62"
@@ -190,6 +190,8 @@ int IsKeyResidue(int seqPos, int *refKeys,
                  char *seqAln, char *refAln);
 
 BOOL DomainSequenceMatchesChainSequence(DOMAIN *domain, PDBCHAIN *chain);
+REAL ScoreAlignedResidues(char *aln1, char *aln2, int alignLen, int minLen);
+
 
 
 
@@ -523,6 +525,42 @@ FILE *OpenSequenceDataFile(void)
 
 
 /************************************************************************/
+REAL ScoreAlignedResidues(char *aln1, char *aln2,
+                          int alignLen, int minLen)
+{
+      int nAligned = 0,
+          nMatched = 0,
+          i;
+
+      /* Score the matched residues                                     */
+      for(i=0; i<alignLen; i++)
+      {
+         if((aln1[i] != '-') &&
+            (aln2[i] != '-'))
+         {
+            nAligned++;
+            if(aln1[i] == aln2[i])
+            {
+               nMatched++;
+            }
+         }
+      }
+
+#ifdef DEBUG
+      printf("SEQ1: %s\n", alignDomSeq);
+      printf("SEQ2: %s\n", alignChainSeq);
+      printf("MATCH: %d ALIGN: %d SCORE: %f\n\n",
+             nMatched, nAligned, ((REAL)nMatched/(REAL)nAligned));
+#endif
+
+      if(nAligned < minLen)
+         return((REAL)0.0);
+      
+      return((REAL)nMatched/(REAL)nAligned);
+}
+
+
+/************************************************************************/
 /*>REAL CompareSeqs(char *seqresSeq, char *refSeq, 
                     char *alignSeqres, char *alignRef)
    -----------------------------------------------
@@ -537,6 +575,50 @@ FILE *OpenSequenceDataFile(void)
    - 20.09.21 Modified to use affine alignment and mutation matrix
 */
 REAL CompareSeqs(char *seqresSeq, char *refSeq,
+                 char *alignSeqres, char *alignRef)
+{
+   int  alignLen;
+   REAL percMatch;
+   
+   blAffinealign(seqresSeq, strlen(seqresSeq),
+                 refSeq, strlen(refSeq),
+                 FALSE,          /* verbose                     */
+                 FALSE,          /* identity                    */
+                 GAPOPENPENALTY, /* penalty                     */
+                 GAPEXTPENALTY,  /* extension                   */
+                 alignSeqres,
+                 alignRef,
+                 &alignLen);
+
+   alignSeqres[alignLen]  = alignRef[alignLen] = '\0';
+
+   percMatch = ScoreAlignedResidues(alignSeqres, alignRef, alignLen, MINSEQLEN);
+   
+#ifdef DEBUG   
+   fprintf(stderr, "\n>>>%s\n", alignSeqres);
+   fprintf(stderr, ">>>%s\n",   alignRef);
+   fprintf(stderr, ">>>SCORE: %f\n",   percMatch);
+#endif
+
+   return(percMatch);
+}
+
+
+/************************************************************************/
+/*>REAL CompareSeqsOLD(char *seqresSeq, char *refSeq, 
+                    char *alignSeqres, char *alignRef)
+   -----------------------------------------------
+*//**
+   \param[in]   seqresSeq     the sequence of interest
+   \param[in]   refSeq        the database sequence
+   \param[out]  alignSeqres   Alignment of our sequence
+   \param[out]  alignRef      Alignment of database sequence
+   \return                    Score for alignment
+
+   - 31.03.20 Original   By: ACRM
+   - 20.09.21 Modified to use affine alignment and mutation matrix
+*/
+REAL CompareSeqsOLD(char *seqresSeq, char *refSeq,
                  char *alignSeqres, char *alignRef)
 {
    int  score;
@@ -555,7 +637,7 @@ REAL CompareSeqs(char *seqresSeq, char *refSeq,
                                       alignRef,
                                       &alignLen);
 
-   if(strlen(seqresSeq) >= 50)
+   if(strlen(seqresSeq) >= MINSEQLEN)
    {
       bestPossibleScore2 = blAffinealign(seqresSeq, strlen(seqresSeq),
                                          seqresSeq, strlen(seqresSeq),
@@ -663,13 +745,13 @@ BOOL CheckAndMask(char *seqresSeq, FILE *dbFp, PDBCHAIN *chain,
       free(refSeq);
    }
 
-   /* If we found an antibody sequence                                  */
-#ifdef DEBUG
+#ifndef DEBUG
    printf("MaxScore : %f\n", maxScore);
    printf("Sequence : %s\n", bestAlignSeqres);
    printf("Reference: %s\n", bestAlignRef);
 #endif
    
+   /* If we found an antibody sequence                                  */
    if(maxScore > ABTHRESHOLD)
    {
       if(gVerbose)
@@ -2320,10 +2402,8 @@ BOOL DomainSequenceMatchesChainSequence(DOMAIN *domain, PDBCHAIN *chain)
                  alignChainSeq[MAXSEQ+1],
                  alignDomSeq[MAXSEQ+1];
       int        nRes     = 0,
-                 nAligned = 0,
-                 nMatched = 0,
-                 alignLen,
-                 i;
+                 alignLen;
+      REAL       percId;
       
 
       /* Assemble the chain sequence                                    */
@@ -2344,27 +2424,16 @@ BOOL DomainSequenceMatchesChainSequence(DOMAIN *domain, PDBCHAIN *chain)
                     alignDomSeq,
                     &alignLen);
       /* Score the matched residues                                     */
-      for(i=0; i<alignLen; i++)
-      {
-         if((alignChainSeq[i] != '-') &&
-            (alignDomSeq[i]   != '-'))
-         {
-            nAligned++;
-            if(alignChainSeq[i] == alignDomSeq[i])
-            {
-               nMatched++;
-            }
-         }
-      }
+      percId = ScoreAlignedResidues(alignChainSeq, alignDomSeq,
+                                    alignLen, MINSEQLEN);
 
 #ifdef DEBUG
-      printf("DOM: %s\n", alignDomSeq);
-      printf("CHN: %s\n", alignChainSeq);
-      printf("MATCH: %d ALIGN: %d SCORE: %f\n\n",
-             nMatched, nAligned, ((REAL)nMatched/(REAL)nAligned));
+      printf("DOM: %s\n",   alignDomSeq);
+      printf("CHN: %s\n",   alignChainSeq);
+      printf("SCO: %f\n\n", percId);
 #endif
       
-      if(((REAL)nMatched/(REAL)nAligned) >= SAMESEQ_CUTOFF)
+      if(percId >= SAMESEQ_CUTOFF)
       {
          return(TRUE);
       }
