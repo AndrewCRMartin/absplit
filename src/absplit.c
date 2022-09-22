@@ -99,6 +99,7 @@
 #define CHAINTYPE_HET   (APTR)3
 #define RES_WRITTEN_NO  (APTR)0
 #define RES_WRITTEN_YES (APTR)1
+#define SAMESEQ_CUTOFF  0.95   /* Was 0.98                              */
 
 typedef struct _domain
 {
@@ -2338,7 +2339,7 @@ BOOL DomainSequenceMatchesChainSequence(DOMAIN *domain, PDBCHAIN *chain)
                     FALSE,          /* verbose                  */
                     TRUE,           /* identity                 */
                     2,              /* penalty                  */
-                    1,              /* extension                */
+                    0,              /* extension                */
                     alignChainSeq,
                     alignDomSeq,
                     &alignLen);
@@ -2356,7 +2357,14 @@ BOOL DomainSequenceMatchesChainSequence(DOMAIN *domain, PDBCHAIN *chain)
          }
       }
 
-      if(((REAL)nMatched/(REAL)nAligned) >= 0.98)
+#ifdef DEBUG
+      printf("DOM: %s\n", alignDomSeq);
+      printf("CHN: %s\n", alignChainSeq);
+      printf("MATCH: %d ALIGN: %d SCORE: %f\n\n",
+             nMatched, nAligned, ((REAL)nMatched/(REAL)nAligned));
+#endif
+      
+      if(((REAL)nMatched/(REAL)nAligned) >= SAMESEQ_CUTOFF)
       {
          return(TRUE);
       }
