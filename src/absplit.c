@@ -89,6 +89,8 @@
                                   6o8d but not too much for 1dee
                                   Currently includes xtal packing for 
                                   1a6v                                  */
+#define MINAGCONTOK     30     /* If we have this many we always count as
+                                  antigen                               */
 #define MINHETATOMS     8
 #define MAXANTIGEN      16
 #define MAXCHAINS       80
@@ -415,7 +417,7 @@ BOOL ProcessFile(WHOLEPDB *wpdb, char *infile, FILE *dataFp)
 #endif
             if(chain->extras == CHAINTYPE_PROT)
             {
-               printf("\n***Handling chain: %s\n", chain->chain);
+               printf("***Handling chain: %s\n", chain->chain);
                domains = FindVHVLDomains(wpdb, chain, dataFp, domains);
             }
          }
@@ -1266,7 +1268,7 @@ Dist %.3f\n",
 
                         if(gVerbose)
                         {
-                           printf("*Paired domain %d with %d\n",
+                           printf("***Paired domain %d with %d\n",
                                   d1->domainNumber, d2->domainNumber);
                         }
                      }
@@ -1617,11 +1619,12 @@ BOOL CheckAntigenContacts(DOMAIN *domain, PDBSTRUCT *pdbs)
          {
             int resnum = 0;
 
-#ifdef DEBUG_AG_CONTACTS
-            printf("Checking domain %d (chain %s) against chain %s\n",
-                   domain->domainNumber, domain->chain->chain,
-                   chain->chain);
-#endif
+            if(gVerbose)
+            {
+               printf("Checking domain %d (chain %s) against chain %s\n",
+                      domain->domainNumber, domain->chain->chain,
+                      chain->chain);
+            }
 
             /* Now check whether the sequence of this chain matches
                that of the domain or of the paired domain. If so this 
@@ -1682,16 +1685,22 @@ contacts with chain %s\n",
 #endif                           
 
 
-            if((nCDRContacts >= MINAGCONTACTS) &&
-               (nCDRContacts > nFWContacts))
+            if(nCDRContacts >= MINAGCONTACTS)
             {
-               foundAntigen = TRUE;
-               if(domain->nAntigenChains < MAXANTIGEN)
-                  domain->antigenChains[domain->nAntigenChains++] = chain;
-               if((pairedDomain != NULL) &&
-                  (pairedDomain->nAntigenChains < MAXANTIGEN))
-                  pairedDomain->antigenChains[pairedDomain->nAntigenChains++] = chain;
-               goto break1;
+               if((nCDRContacts > nFWContacts) || (nCDRContacts >= MINAGCONTOK))
+               {
+                  foundAntigen = TRUE;
+                  if(domain->nAntigenChains < MAXANTIGEN)
+                     domain->antigenChains[domain->nAntigenChains++] = chain;
+                  if((pairedDomain != NULL) &&
+                     (pairedDomain->nAntigenChains < MAXANTIGEN))
+                     pairedDomain->antigenChains[pairedDomain->nAntigenChains++] = chain;
+                  goto break1;
+               }
+               else if(gVerbose)
+               {
+                  ;
+               }
             }
 
             /************************************************************/
@@ -1741,17 +1750,23 @@ chain %s\n",
                       pairedDomain->chain->chain,
                       nCDRContacts, nFWContacts, chain->chain);
 #endif
-               if((nCDRContacts >= MINAGCONTACTS) &&
-                  (nCDRContacts > nFWContacts))
+               if(nCDRContacts >= MINAGCONTACTS)
                {
-                  foundAntigen = TRUE;
-                  if(domain->nAntigenChains < MAXANTIGEN)
-                     domain->antigenChains[domain->nAntigenChains++] =
-                        chain;
-                  if((pairedDomain != NULL) &&
-                     (pairedDomain->nAntigenChains < MAXANTIGEN))
-                     pairedDomain->antigenChains[pairedDomain->nAntigenChains++] = chain;
-                  goto break1;
+                  if((nCDRContacts > nFWContacts) || (nCDRContacts >= MINAGCONTOK))
+                  {
+                     foundAntigen = TRUE;
+                     if(domain->nAntigenChains < MAXANTIGEN)
+                        domain->antigenChains[domain->nAntigenChains++] =
+                           chain;
+                     if((pairedDomain != NULL) &&
+                        (pairedDomain->nAntigenChains < MAXANTIGEN))
+                        pairedDomain->antigenChains[pairedDomain->nAntigenChains++] = chain;
+                     goto break1;
+                  }
+                  else
+                  {
+                     fprintf(stderr, "Rejected chain %s as antigen since it makes more contacts with FW (%d) than CDRs (%d)\n",chain->chain,nFWContacts,nCDRContacts);
+                  }
                }
             }
          break1:
