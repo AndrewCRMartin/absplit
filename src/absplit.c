@@ -83,7 +83,7 @@
 #define MAXRESID        16
 #define MINSEQLEN       50
 #define COFGDISTCUTSQ   1225.0 /* 35^2 - for possible VH/VL pairs       */
-#define INTDISTCUTSQ    400.0  /* 20^2 - for VH/VL interface contact    */
+#define INTDISTCUTSQ    484.0  /* 22^2 - for VH/VL interface contact    */
 #define CONTACTDISTSQ   36.0   /* 6^2  - for antigen contacts           */
 #define MINAGCONTACTS   14     /* Tweaked with CONTACTDISTSQ to get Ag for
                                   6o8d but not too much for 1dee
@@ -1263,10 +1263,12 @@ Dist %.3f\n",
                         d2->pairIntDistSq  = distIntSq;
                         d1->pairedDomain = d2;
                         d2->pairedDomain = d1;
-#ifndef DEBUG
-                        printf("*Paired domain %d with %d\n",
-                               d1->domainNumber, d2->domainNumber);
-#endif
+
+                        if(gVerbose)
+                        {
+                           printf("*Paired domain %d with %d\n",
+                                  d1->domainNumber, d2->domainNumber);
+                        }
                      }
                   }
                }
