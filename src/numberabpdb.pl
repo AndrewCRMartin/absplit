@@ -60,9 +60,29 @@ FixChainLabels($outFile, $outTemp);
 `pdbrenum -d $outFile > $outTemp`;
 `pdbconect $outTemp $outFile`;
 
+CheckCDRH3($outFile, $errFile);
+
 unlink $fileLH;
 unlink $fileNum;
 unlink $outTemp;
+
+
+sub CheckCDRH3
+{
+    my ($outFile, $errFile) = @_;
+    # Check that if residue H100A is there, residue H102 is also present
+    my $h100a=`grep 'H 100A' $outFile`;
+    chomp $h100a;
+    if($h100a ne '')
+    {
+        my $h102 = `grep 'H 102' $outFile`;
+        chomp $h102;
+        if($h102 eq '')
+        {
+            `echo "Error in numbering CDR-H3 - likely insertion or truncation" >>$errFile`;
+        }
+    }
+}
 
 sub WriteToFile
 {
