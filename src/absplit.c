@@ -685,7 +685,7 @@ DOMAIN *FindVHVLDomains(WHOLEPDB *wpdb, PDBCHAIN *chain, FILE *dataFp,
 /*   GetSequenceForChainSeqres(wpdb, chain, sequence); */
    
    GetSequenceForChain(wpdb, chain, sequence);
-#ifndef DEBUG
+#ifdef DEBUG
    printf("Chain: %s Sequence: %s\n", chain->chain, sequence);
 #endif
    while(TRUE)
@@ -745,7 +745,7 @@ BOOL CheckAndMask(char *seqresSeq, FILE *dbFp, PDBCHAIN *chain,
       free(refSeq);
    }
 
-#ifndef DEBUG
+#ifdef DEBUG
    printf("MaxScore : %f\n", maxScore);
    printf("Sequence : %s\n", bestAlignSeqres);
    printf("Reference: %s\n", bestAlignRef);
@@ -1271,7 +1271,7 @@ Dist %.3f\n",
                   }
                }
                
-#ifdef FUBAR
+#ifdef DEBUG
                printf("CofG Distance (domain %d to %d): %.3f\n",
                       d1->domainNumber, d2->domainNumber,
                       sqrt(distCofGSq));
@@ -1589,7 +1589,8 @@ BOOL CheckAntigenContacts(DOMAIN *domain, PDBSTRUCT *pdbs)
    PDB      *p, *q,
             *nextResP, *nextResQ;
    PDBCHAIN *chain;
-   int      nContacts     = 0;
+   int      nCDRContacts  = 0,
+            nFWContacts   = 0;
    DOMAIN   *pairedDomain = domain->pairedDomain;
    BOOL     foundAntigen  = FALSE;
    
@@ -1603,7 +1604,8 @@ BOOL CheckAntigenContacts(DOMAIN *domain, PDBSTRUCT *pdbs)
       if((chain->extras == CHAINTYPE_PROT) ||
          (chain->extras == CHAINTYPE_NUCL))
       {
-         nContacts = 0;
+         nCDRContacts = 0;
+         nFWContacts  = 0;
          /* If this is not the chain for this domain or the paired domain,
             then it's a potential antigen
          */
@@ -1625,7 +1627,8 @@ BOOL CheckAntigenContacts(DOMAIN *domain, PDBSTRUCT *pdbs)
             */
             if(DomainSequenceMatchesChainSequence(domain, chain))
             {
-               printf("Crystal packing: Chain %s = Domain %d (chain %s)\n",
+               printf("Crystal packing: Chain %s = Domain %d \
+(chain %s)\n",
                       chain->chain, domain->domainNumber,
                       domain->chain->chain);
                continue;
@@ -1633,55 +1636,68 @@ BOOL CheckAntigenContacts(DOMAIN *domain, PDBSTRUCT *pdbs)
             
             if(DomainSequenceMatchesChainSequence(pairedDomain, chain))
             {
-               printf("Crystal packing: Chain %s = Domain %d (chain %s)\n",
+               printf("Crystal packing: Chain %s = Domain %d \
+(chain %s)\n",
                       chain->chain, pairedDomain->domainNumber,
                       pairedDomain->chain->chain);
                continue;
             }
-            
+
+            /************************************************************/
             /* Check this domain for contacts a residue at a time       */
             for(p=domain->startRes; p!=domain->stopRes; p=nextResP)
             {
                nextResP = blFindNextResidue(p);
-
-               /* If this is a CDR residue                              */
-               if(InIntArray(resnum, domain->CDRRes, domain->nCDRRes))
+               
+               for(q=chain->start; q!=chain->stop; q=nextResQ)
                {
-                  for(q=chain->start; q!=chain->stop; q=nextResQ)
+                  nextResQ = blFindNextResidue(q);
+                  
+                  if(RegionsMakeContact(p, nextResP, q, nextResQ))
                   {
-                     nextResQ = blFindNextResidue(q);
-                     
-                     if(RegionsMakeContact(p, nextResP, q, nextResQ))
+                     /* If this is a CDR residue                        */
+                     if(InIntArray(resnum,
+                                   domain->CDRRes,
+                                   domain->nCDRRes))
                      {
-#ifdef DEBUG_AG_CONTACTS
-                        printf("Domain %d (chain %s) makes %d contacts \
-with chain %s\n",
-                               domain->domainNumber,
-                               domain->chain->chain,
-                               nContacts, chain->chain);
-#endif                           
-                        if(++nContacts >= MINAGCONTACTS)
-                        {
-                           foundAntigen = TRUE;
-                           if(domain->nAntigenChains < MAXANTIGEN)
-                              domain->antigenChains[domain->nAntigenChains++] = chain;
-                           if((pairedDomain != NULL) &&
-                              (pairedDomain->nAntigenChains < MAXANTIGEN))
-                              pairedDomain->antigenChains[pairedDomain->nAntigenChains++] = chain;
-                           goto break1;
-                        }
+                        nCDRContacts++;
+                     }
+                     else
+                     {
+                        nFWContacts++;
                      }
                   }
                }
-
                resnum++;
             }
-            
+
+#ifdef DEBUG_AG_CONTACTS
+            printf("Domain %d (chain %s) makes %d CDR and %d FW \
+contacts with chain %s\n",
+                   domain->domainNumber,
+                   domain->chain->chain,
+                   nCDRContacts, nFWContacts, chain->chain);
+#endif                           
+
+
+            if((nCDRContacts >= MINAGCONTACTS) &&
+               (nCDRContacts > nFWContacts))
+            {
+               foundAntigen = TRUE;
+               if(domain->nAntigenChains < MAXANTIGEN)
+                  domain->antigenChains[domain->nAntigenChains++] = chain;
+               if((pairedDomain != NULL) &&
+                  (pairedDomain->nAntigenChains < MAXANTIGEN))
+                  pairedDomain->antigenChains[pairedDomain->nAntigenChains++] = chain;
+               goto break1;
+            }
+
+            /************************************************************/
             /* Check partner domain for contacts                        */
             if(pairedDomain != NULL)
             {
 #ifdef DEBUG_AG_CONTACTS
-               printf("Checking partner domain %d (chain %s) against \
+               printf("\nChecking partner domain %d (chain %s) against \
 chain %s\n",
                       pairedDomain->domainNumber,
                       pairedDomain->chain->chain, chain->chain);
@@ -1692,38 +1708,48 @@ chain %s\n",
                    p=nextResP)
                {
                   nextResP = blFindNextResidue(p);
-                     
-                  if(InIntArray(resnum, pairedDomain->CDRRes,
-                                pairedDomain->nCDRRes))
+                  
+                  for(q=chain->start; q!=chain->stop; q=nextResQ)
                   {
-                     for(q=chain->start; q!=chain->stop; q=nextResQ)
+                     nextResQ = blFindNextResidue(q);
+                     
+                     if(RegionsMakeContact(p, nextResP, q, nextResQ))
                      {
-                        nextResQ = blFindNextResidue(q);
-                        
-                        if(RegionsMakeContact(p, nextResP, q, nextResQ))
+                        /* If this is a CDR residue                     */
+                        if(InIntArray(resnum,
+                                      pairedDomain->CDRRes,
+                                      pairedDomain->nCDRRes))
                         {
-#ifdef DEBUG_AG_CONTACTS
-                           printf("Domain %d (chain %s) makes %d \
-contacts with chain %s\n",
-                                  pairedDomain->domainNumber,
-                                  pairedDomain->chain->chain,
-                                  nContacts, chain->chain);
-#endif
-
-                           if(++nContacts >= MINAGCONTACTS)
-                           {
-                              foundAntigen = TRUE;
-                              if(domain->nAntigenChains < MAXANTIGEN)
-                                 domain->antigenChains[domain->nAntigenChains++] = chain;
-                              if((pairedDomain != NULL) &&
-                                 (pairedDomain->nAntigenChains < MAXANTIGEN))
-                                 pairedDomain->antigenChains[pairedDomain->nAntigenChains++] = chain;
-                              goto break1;
-                           }
+                           nCDRContacts++;
+                        }
+                        else
+                        {
+                           nFWContacts++;
                         }
                      }
                   }
+                     
                   resnum++;
+               }
+
+#ifdef DEBUG_AG_CONTACTS
+               printf("Adding domain %d (chain %s) makes %d CDR and \
+%d FW contacts with chain %s\n",
+                      pairedDomain->domainNumber,
+                      pairedDomain->chain->chain,
+                      nCDRContacts, nFWContacts, chain->chain);
+#endif
+               if((nCDRContacts >= MINAGCONTACTS) &&
+                  (nCDRContacts > nFWContacts))
+               {
+                  foundAntigen = TRUE;
+                  if(domain->nAntigenChains < MAXANTIGEN)
+                     domain->antigenChains[domain->nAntigenChains++] =
+                        chain;
+                  if((pairedDomain != NULL) &&
+                     (pairedDomain->nAntigenChains < MAXANTIGEN))
+                     pairedDomain->antigenChains[pairedDomain->nAntigenChains++] = chain;
+                  goto break1;
                }
             }
          break1:
@@ -1734,6 +1760,7 @@ contacts with chain %s\n",
 
    return(foundAntigen);
 }
+
 
 void GetSequenceForChainSeqres(WHOLEPDB *wpdb, PDBCHAIN *chain,
                                char *sequence)
