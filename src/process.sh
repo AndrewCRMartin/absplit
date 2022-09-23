@@ -16,6 +16,9 @@ function echoifnotempty
 # Split the file into component Fvs and antigens
 $absplit $input
 
+# Get resolution etc.
+resolution=`getresol $input`
+
 stem=`basename $input .ent`
 stem=`basename $stem  .pdb`
 
@@ -23,7 +26,9 @@ stem=`basename $stem  .pdb`
 for file in ${stem}_*.pdb
 do
     echo $file
-    pdbrepair -t $file > `basename $file .pdb`.fix
+    fixfile=`basename $file .pdb`.fix
+    echo "REMARK 950 RESOL $resolution" > $fixfile
+    pdbrepair -t $file >> $fixfile
 done
 
 # Extract the sequence for L and H and combine into one FASTA sequence
@@ -33,7 +38,6 @@ do
     faa=`basename $file .fix`.faa
     id=`basename $file .fix`
     id=`echo $id | sed 's/^pdb//'`
-#    pdbgetchain L,l,H,h $file | pdb2pir -s -i -c -f $file > $tmpfaa
     pdbgetchain L,l,H,h $file | pdb2pir -s -i -c -f > $tmpfaa
     $combinefaa -l=$id $tmpfaa > $faa
 done
