@@ -15,7 +15,9 @@ my $heavySeqres   = `fgrep SEQRES $inFile | egrep '( H | h )'`;
 my $antigenSeqres = `fgrep SEQRES $inFile | egrep -v -i '( H | L )'`;
 my $lightChain   = `pdbgetchain L,l $inFile | egrep '^(ATOM|HETATM)'`;
 my $heavyChain   = `pdbgetchain H,h $inFile | egrep '^(ATOM|HETATM)'`;
-my $antigen      = `egrep '^(ATOM|HETATM)' $inFile | grep -v -i ' L ' | grep -v -i ' H '`;
+#my $antigen      = `egrep '^(ATOM|HETATM)' $inFile | grep -v -i ' L ' | grep -v -i ' H '`;
+# Still not perfect as we will pick up residues catted CTER etc.
+my $antigen      = `egrep '^(ATOM|HETATM)' $inFile | egrep -v -i ' [LH][ 0-9]'`;
 
 my $fileLH  = "/var/tmp/numberpdb_LH_$$"  . '_' . time();
 my $fileNum = "/var/tmp/numberpdb_Num_$$" . '_' . time();
