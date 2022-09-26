@@ -101,7 +101,7 @@
 #define CHAINTYPE_HET   (APTR)3
 #define RES_WRITTEN_NO  (APTR)0
 #define RES_WRITTEN_YES (APTR)1
-#define SAMESEQ_CUTOFF  0.95   /* Was 0.98                              */
+#define SAMESEQ_CUTOFF  0.94   /* Was 0.98                              */
 
 typedef struct _domain
 {
@@ -1632,7 +1632,7 @@ BOOL CheckAntigenContacts(DOMAIN *domain, PDBSTRUCT *pdbs)
             */
             if(DomainSequenceMatchesChainSequence(domain, chain))
             {
-               printf("Crystal packing: Chain %s = Domain %d \
+               printf("Crystal packing: Chain %s <=> Domain %d \
 (chain %s)\n",
                       chain->chain, domain->domainNumber,
                       domain->chain->chain);
@@ -1641,7 +1641,7 @@ BOOL CheckAntigenContacts(DOMAIN *domain, PDBSTRUCT *pdbs)
             
             if(DomainSequenceMatchesChainSequence(pairedDomain, chain))
             {
-               printf("Crystal packing: Chain %s = Domain %d \
+               printf("Crystal packing: Chain %s <=> Domain %d \
 (chain %s)\n",
                       chain->chain, pairedDomain->domainNumber,
                       pairedDomain->chain->chain);
@@ -2472,6 +2472,8 @@ BOOL DomainSequenceMatchesChainSequence(DOMAIN *domain, PDBCHAIN *chain)
                                     alignLen, MINSEQLEN);
 
 #ifdef DEBUG
+      printf("\nChain %s <=> Domain %d (chain %s)\n",
+             chain->chain, domain->domainNumber, domain->chain->chain);
       printf("DOM: %s\n",   alignDomSeq);
       printf("CHN: %s\n",   alignChainSeq);
       printf("SCO: %f\n\n", percId);
