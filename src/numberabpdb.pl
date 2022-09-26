@@ -16,7 +16,7 @@ my $antigenSeqres = `fgrep SEQRES $inFile | egrep -v -i '( H | L )'`;
 my $lightChain   = `pdbgetchain L,l $inFile | egrep '^(ATOM|HETATM)'`;
 my $heavyChain   = `pdbgetchain H,h $inFile | egrep '^(ATOM|HETATM)'`;
 #my $antigen      = `egrep '^(ATOM|HETATM)' $inFile | grep -v -i ' L ' | grep -v -i ' H '`;
-# Still not perfect as we will pick up residues catted CTER etc.
+# Still not perfect as we will pick up residues called CTER etc.
 my $antigen      = `egrep '^(ATOM|HETATM)' $inFile | egrep -v -i ' [LH][ 0-9]'`;
 
 my $fileLH  = "/var/tmp/numberpdb_LH_$$"  . '_' . time();
@@ -43,6 +43,9 @@ $errFile .= $scheme . ".err";
 
 # Apply numbering to the temp file and save in another temp file
 `pdbabnum $scheme $fileLH 2> $errFile | egrep -v '^(MASTER|END|SEQRES)' > $fileNum`;
+
+# Check that both chain have been numbered if both present
+CheckChainsArePresent($lightChain, $heavyChain, $fileNum, $errFile);
 
 # Write the header to the final output tempfile
 WriteToFile($outTemp, $header, 0);
@@ -180,4 +183,26 @@ sub FixSecondChain
     {
         die "Can't read file: $pdbFile\n";
     }   
+}
+
+sub CheckChainsArePresent
+{
+    my($lightChain, $heavyChain, $fileNum, $errFile) = @_;
+
+    my $numLightChain = `egrep '^(ATOM|HETATM)' $fileNum | egrep -i ' [L][ 0-9]'`;
+    my $numHeavyChain = `egrep '^(ATOM|HETATM)' $fileNum | egrep -i ' [H][ 0-9]'`;
+    
+    chomp $lightChain;
+    chomp $heavyChain;
+    chomp $numLightChain;
+    chomp $numHeavyChain;
+
+    if(($lightChain ne '') && ($numLightChain eq ''))
+    {
+        `echo "Error: Light chain was not numbered" >> $errFile`;
+    }
+    if(($heavyChain ne '') && ($numHeavyChain eq ''))
+    {
+        `echo "Error: Heavy chain was not numbered" >> $errFile`;
+    }
 }
