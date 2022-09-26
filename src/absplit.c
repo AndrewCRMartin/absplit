@@ -93,7 +93,7 @@
                                   antigen                               */
 #define MINHETATOMS     8
 #define MAXANTIGEN      16
-#define MAXCHAINS       80
+#define MAXCHAINS       80     /* Max number of chains in a PDB         */
 #define MAXCHAINLABEL   blMAXCHAINLABEL
 #define MAXHETANTIGEN   160
 #define CHAINTYPE_PROT  (APTR)1
@@ -193,6 +193,9 @@ int IsKeyResidue(int seqPos, int *refKeys,
 
 BOOL DomainSequenceMatchesChainSequence(DOMAIN *domain, PDBCHAIN *chain);
 REAL ScoreAlignedResidues(char *aln1, char *aln2, int alignLen, int minLen);
+BOOL inAntigenArray(char antigenChains[MAXANTIGEN][MAXCHAINLABEL],
+                    int numAntigenChains, char *chainLabel);
+
 
 
 
@@ -2218,6 +2221,9 @@ PDB *RelabelAntigenChains(DOMAIN *domain, char *remark950)
    PDB *p, *q;
    PDB *pdb = NULL;
    int i;
+   static char sAntigenChains[MAXANTIGEN][MAXCHAINLABEL];
+   static int  sNumAntigenChains = 0;
+   static char sAntigenLabel     = 'a';
    
    remark950[0] = '\0';
 
@@ -2229,11 +2235,31 @@ PDB *RelabelAntigenChains(DOMAIN *domain, char *remark950)
                record[MAXBUFF];
 
       strcpy(chainLabel, chain->start->chain);
-      if(CHAINMATCH(chainLabel, "L") || CHAINMATCH(chainLabel, "H"))
+      
+      if(CHAINMATCH(chainLabel, "L") || CHAINMATCH(chainLabel, "H") ||
+         inAntigenArray(sAntigenChains, sNumAntigenChains, chainLabel))
       {
-         LOWER(chainLabel);
+         /* Relabel as a, b, etc - but check we haven't used it         */
+         char label[MAXCHAINLABEL];
+         
+         do {
+            label[0] = sAntigenLabel;
+            label[1] = '\0';
+            sAntigenLabel++;
+         }  while(inAntigenArray(sAntigenChains,
+                                 sNumAntigenChains, label));
+         strcpy(chainLabel, label);
       }
 
+      strcpy(sAntigenChains[sNumAntigenChains], chainLabel);
+      if(++sNumAntigenChains >= MAXANTIGEN)
+      {
+         fprintf(stderr, "Error: Too many antigen chains - \
+Increase MAXANTIGEN\n");
+         exit(1);
+      }
+
+      
       sprintf(record, "REMARK 950 CHAIN A%6s%6s\n",
               chainLabel, chain->start->chain);
       strcat(remark950, record);
@@ -2264,6 +2290,21 @@ PDB *RelabelAntigenChains(DOMAIN *domain, char *remark950)
    return(pdb);
 }
 
+
+BOOL inAntigenArray(char antigenChains[MAXANTIGEN][MAXCHAINLABEL],
+                    int numAntigenChains, char *chainLabel)
+{
+   int i;
+   for(i=0; i<numAntigenChains; i++)
+   {
+      if(!strcmp(antigenChains[i], chainLabel))
+         return(TRUE);
+   }
+   return(FALSE);
+}
+
+
+   
 void WriteSeqres(FILE *fp, WHOLEPDB *wpdb, DOMAIN *domain)
 {
    STRINGLIST *s;
