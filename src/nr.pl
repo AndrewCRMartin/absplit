@@ -1,8 +1,59 @@
 #!/usr/bin/perl -s
-
+#*************************************************************************
+#
+#   Program:    absplit/nr
+#   File:       nr.pl
+#   
+#   Version:    V0.1
+#   Date:       28.09.22
+#   Function:   Create info on non-redundant antibodies
+#   
+#   Copyright:  (c) Prof. Andrew C. R. Martin, UCL, 2022
+#   Author:     Prof. Andrew C. R. Martin
+#   Address:    Institute of Structural and Molecular Biology
+#               Division of Biosciences
+#               University College
+#               Gower Street
+#               London
+#               WC1E 6BT
+#   EMail:      andrew@bioinf.org.uk
+#               
+#*************************************************************************
+#
+#   This program is not in the public domain, but it may be copied
+#   according to the conditions laid out in the accompanying file
+#   COPYING.DOC
+#
+#   The code may be modified as required, but any modifications must be
+#   documented so that the person responsible can be identified. If 
+#   someone else breaks this code, I don't want to be blamed for code 
+#   that does not work! 
+#
+#   The code may not be sold commercially or included as part of a 
+#   commercial product except as described in the file COPYING.DOC.
+#
+#*************************************************************************
+#
+#   Description:
+#   ============
+#
+#*************************************************************************
+#
+#   Usage:
+#   ======
+#
+#*************************************************************************
+#
+#   Revision History:
+#   =================
+#   V0.1   28.09.22   Original   By: ACRM
+#
+#*************************************************************************
+use FindBin;
+use Cwd qw(abs_path);
 use strict;
 
-$::gCDHit = '../dataprep/cdhit/cd-hit';
+$::gCDHit = abs_path("$FindBin::Bin/../dataprep/cdhit/cd-hit");
 
 if(! -x $::gCDHit)
 {
