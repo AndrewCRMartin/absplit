@@ -1,5 +1,4 @@
-#sacslist=/serv/www/html_abybank/sacs/list/antibodies.txt
-sacslist=/tmp/test.lis
+sacslist=/serv/www/html_abybank/sacs/list/antibodies.txt
 absplitdir=${HOME}/git/absplit/
 builddirtop=/data/abdbbuild
 webdir=/serv/www/html_abybank/abdb/snapshots/
